@@ -40,23 +40,7 @@
 #include <linux/seccomp.h>
 #include <linux/if_vlan.h>
 
-/* No hurry in this branch
- *
- * Exported for the bpf jit load helper.
- */
-void *bpf_internal_load_pointer_neg_helper(const struct sk_buff *skb, int k, unsigned int size)
-{
-	u8 *ptr = NULL;
-
-	if (k >= SKF_NET_OFF)
-		ptr = skb_network_header(skb) + k - SKF_NET_OFF;
-	else if (k >= SKF_LL_OFF)
-		ptr = skb_mac_header(skb) + k - SKF_LL_OFF;
-
-	if (ptr >= skb->head && ptr + size <= skb_tail_pointer(skb))
-		return ptr;
-	return NULL;
-}
+/* bpf_internal_load_pointer_neg_helper now lives in kernel/bpf/core.c (eBPF) */
 
 static inline void *load_pointer(const struct sk_buff *skb, int k,
 				 unsigned int size, void *buffer)
@@ -641,7 +625,7 @@ void sk_filter_release_rcu(struct rcu_head *rcu)
 {
 	struct sk_filter *fp = container_of(rcu, struct sk_filter, rcu);
 
-	bpf_jit_free(fp);
+	cbpf_jit_free(fp);
 	kfree(fp);
 }
 EXPORT_SYMBOL(sk_filter_release_rcu);
@@ -656,7 +640,7 @@ static int __sk_prepare_filter(struct sk_filter *fp)
 	if (err)
 		return err;
 
-	bpf_jit_compile(fp);
+	cbpf_jit_compile(fp);
 	return 0;
 }
 
