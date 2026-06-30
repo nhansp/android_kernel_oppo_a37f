@@ -80,6 +80,7 @@ dtb-$(CONFIG_ARCH_MSM8909) += msm8909-sim.dtb \
 	apq8009-512mb-mtp-wcd9326-refboard.dtb
 
 dtb-$(CONFIG_ARCH_MSM8916) += msm8916-cdp.dtb \
+	msm8916-a37f.dtb \
 	msm8916-cdp-smb1360.dtb \
 	msm8916-mtp.dtb \
 	msm8916-mtp-smb1360.dtb \

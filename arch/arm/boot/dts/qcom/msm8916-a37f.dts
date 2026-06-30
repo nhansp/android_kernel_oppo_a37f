@@ -1,0 +1,49 @@
+/* OPPO A37f (project 15399) — MSM8916 / Snapdragon 410, arm64 boot port.
+ * Boot-essentials scaffold per bringup spec. Device-specific tuning
+ * (CPR/NCP6335D voltage tables, panel, touch, sensors) must be merged from
+ * the VERIFIED downstream 32-bit board-id-15399 DT.
+ */
+
+/dts-v1/;
+
+#include "msm8916-mtp.dtsi"
+#include "msm8916-memory.dtsi"
+
+/ {
+	model = "OPPO A37f (15399)";
+	compatible = "qcom,msm8916-mtp", "qcom,msm8916", "qcom,mtp";
+	/* board-id: project 15399 — must match downstream lk selection */
+	qcom,board-id = <8 0 15399>;
+
+	/* pstore/ramoops: persistent RAM for post-mortem logs (ramoops).
+	 * NOTE: base address is a PLACEHOLDER — validate against the A37f
+	 * memory map before flashing (must be a reserved, non-overlapping hole).
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		ramoops_mem: ramoops_region@9ff00000 {
+			reg = <0x0 0x9ff00000 0x0 0x00100000>;
+			label = "ramoops_mem";
+			no-map;
+		};
+	};
+
+	ramoops {
+		compatible = "ramoops";
+		memory-region = <&ramoops_mem>;
+		record-size  = <0x20000>;
+		console-size = <0x40000>;
+		ftrace-size  = <0x20000>;
+		pmsg-size    = <0x20000>;
+	};
+};
+
+/* USB: A37f has no PMIC VBUS path (bq24196 charger absent) -> use PHY OTG
+ * control so the port comes up for adb. (base dtsi sets =2 PMIC_CONTROL)
+ */
+&usb_otg {
+	qcom,hsusb-otg-otg-control = <1>; /* OTG_PHY_CONTROL */
+};
