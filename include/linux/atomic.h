@@ -164,4 +164,42 @@ static inline void atomic_or(int i, atomic_t *v)
 #ifdef CONFIG_GENERIC_ATOMIC64
 #include <asm-generic/atomic64.h>
 #endif
+/* eBPF backport: _relaxed/_acquire/_release ordering variants map to full-barrier ops */
+#ifndef atomic_cmpxchg_relaxed
+#define atomic_cmpxchg_relaxed(v, o, n)	atomic_cmpxchg((v), (o), (n))
+#endif
+#ifndef atomic_cmpxchg_acquire
+#define atomic_cmpxchg_acquire(v, o, n)	atomic_cmpxchg((v), (o), (n))
+#endif
+#ifndef atomic_cmpxchg_release
+#define atomic_cmpxchg_release(v, o, n)	atomic_cmpxchg((v), (o), (n))
+#endif
+#ifndef atomic_read_acquire
+#define atomic_read_acquire(v)		atomic_read(v)
+#endif
+#ifndef atomic_set_release
+#define atomic_set_release(v, i)	atomic_set((v), (i))
+#endif
+#ifndef atomic_xchg_relaxed
+#define atomic_xchg_relaxed(v, n)	atomic_xchg((v), (n))
+#endif
+#ifndef atomic_fetch_add
+#define atomic_fetch_add(i, v)		atomic_add_return((i), (v)) - (i)
+#endif
+#ifndef atomic_fetch_or
+static inline int atomic_fetch_or(int mask, atomic_t *p)
+{
+	int old, val = atomic_read(p);
+	for (;;) {
+		old = atomic_cmpxchg(p, val, val | mask);
+		if (old == val) break;
+		val = old;
+	}
+	return old;
+}
+#endif
+#ifndef atomic64_cmpxchg_relaxed
+#define atomic64_cmpxchg_relaxed(v, o, n)	atomic64_cmpxchg((v), (o), (n))
+#endif
+
 #endif /* _LINUX_ATOMIC_H */

@@ -71,6 +71,15 @@ extern u64 div64_u64(u64 dividend, u64 divisor);
 extern s64 div64_s64(s64 dividend, s64 divisor);
 #endif
 
+#ifndef div64_u64_rem
+static inline u64 div64_u64_rem(u64 dividend, u64 divisor, u64 *remainder)
+{
+	u64 q = div64_u64(dividend, divisor);
+	*remainder = dividend - q * divisor;
+	return q;
+}
+#endif
+
 #endif /* BITS_PER_LONG */
 
 /**
@@ -119,5 +128,15 @@ __iter_div_u64_rem(u64 dividend, u32 divisor, u64 *remainder)
 
 	return ret;
 }
+
+#ifndef div64_u64_rem
+static inline u64 div64_u64_rem(u64 dividend, u64 divisor, u64 *remainder)
+{
+	u64 q = div64_u64(dividend, divisor);
+	*remainder = dividend - q * divisor;
+	return q;
+}
+#define div64_u64_rem div64_u64_rem
+#endif
 
 #endif /* _LINUX_MATH64_H */

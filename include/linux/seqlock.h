@@ -146,6 +146,20 @@ static inline int read_seqcount_retry(const seqcount_t *s, unsigned start)
  * Sequence counter only version assumes that callers are using their
  * own mutexing.
  */
+static inline void raw_write_seqcount_latch(seqcount_t *s)
+{
+	smp_wmb();
+	s->sequence++;
+	smp_wmb();
+}
+
+static inline int raw_read_seqcount_latch(seqcount_t *s)
+{
+	int seq = READ_ONCE(s->sequence);
+	smp_read_barrier_depends();
+	return seq;
+}
+
 static inline void write_seqcount_begin(seqcount_t *s)
 {
 	s->sequence++;

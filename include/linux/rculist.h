@@ -9,6 +9,15 @@
 #include <linux/list.h>
 #include <linux/rcupdate.h>
 
+#ifndef INIT_LIST_HEAD_RCU_BACKPORT
+#define INIT_LIST_HEAD_RCU_BACKPORT
+static inline void INIT_LIST_HEAD_RCU(struct list_head *list)
+{
+	WRITE_ONCE(list->next, list);
+	WRITE_ONCE(list->prev, list);
+}
+#endif
+
 /*
  * Why is there no list_empty_rcu()?  Because list_empty() serves this
  * purpose.  The list_empty() function fetches the RCU-protected pointer

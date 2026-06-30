@@ -12,6 +12,8 @@ obj-y     = fork.o exec_domain.o panic.o printk.o \
 	    notifier.o ksysfs.o cred.o \
 	    async.o range.o groups.o lglock.o smpboot.o
 
+obj-$(CONFIG_BPF) += bpf/
+
 ifdef CONFIG_FUNCTION_TRACER
 # Do not trace debug files and internal ftrace files
 CFLAGS_REMOVE_lockdep.o = -pg
