@@ -9,6 +9,7 @@
 #include "msm8916-mtp.dtsi"
 #include "msm8916-memory.dtsi"
 #include "dsi-panel-oppo15399-video.dtsi"
+#include "batterydata-oppo15399.dtsi"
 
 / {
 	model = "OPPO A37f (15399)";
@@ -270,4 +271,14 @@
  */
 &soc {
 	/delete-node/ gen-vkeys;
+};
+
+/* ---------------------------------------------------------------------------
+ * Battery FG: point the pm8916 voltage-mode BMS at the real A37f OPPO profiles
+ * (7 profiles: atl/lg/sdi/sony 4v35 + high atl/lg/sdi 4v4) instead of the base
+ * mtp palladium profile. Data in batterydata-oppo15399.dtsi (ported from
+ * live-dt/qcom,battery-data-*).
+ * ------------------------------------------------------------------------- */
+&pm8916_bms {
+	qcom,battery-data = <&oppo_batterydata>;
 };
