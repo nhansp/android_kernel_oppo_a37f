@@ -1,7 +1,7 @@
 /* OPPO A37f (project 15399) — MSM8916 / Snapdragon 410, arm64 boot port.
- * Boot-essentials scaffold per bringup spec. Device-specific tuning
- * (CPR/NCP6335D voltage tables, panel, touch, sensors) must be merged from
- * the VERIFIED downstream 32-bit board-id-15399 DT.
+ * Device hardware ported from the live /proc/device-tree dump
+ * (~/a37f-dumps/live-refs/live-dt). Every node/value is grounded there;
+ * see KERNEL-DT-PORT.md for the source->live-dt trace per node.
  */
 
 /dts-v1/;
@@ -16,8 +16,7 @@
 	qcom,board-id = <8 0 15399>;
 
 	/* pstore/ramoops: persistent RAM for post-mortem logs (ramoops).
-	 * NOTE: base address is a PLACEHOLDER — validate against the A37f
-	 * memory map before flashing (must be a reserved, non-overlapping hole).
+	 * base 0x9ff00000 confirmed against ~/a37f-dumps/raw/cmdline.txt ramoops.
 	 */
 	reserved-memory {
 		#address-cells = <2>;
@@ -46,4 +45,95 @@
  */
 &usb_otg {
 	qcom,hsusb-otg-otg-control = <1>; /* OTG_PHY_CONTROL */
+};
+
+/* ---------------------------------------------------------------------------
+ * CPU rail (BOOT-CRITICAL): external NCP6335D buck on BLSP1 QUP1 (i2c@78b5000)
+ *
+ * The base msm8916 kernel leaves the APC/CPR rail on the internal pm8916_s2
+ * SPM regulator only. The real A37f drives VDD_APC through an external
+ * ON Semi NCP6335D buck (addr 0x1c) which the CPR loop selects via
+ * vdd-apc-optional-prim-supply. i2c@78b5000 (QUP1) is not instantiated by
+ * the base msm8916.dtsi, so we add it here (BAM pipes 4/5, irq 95).
+ *
+ * Ground truth: live-dt/soc/i2c@78b5000/ + .../ncp6335d-regulator@1c/
+ * Bus template: msm8909.dtsi i2c_1 (identical BLSP1 QUP1 on shared GCC).
+ * ------------------------------------------------------------------------- */
+
+/* i2c_1 pinmux (GPIO 2/3, func 3) — live-dt/soc/pinctrl@1000000/pmx_i2c_1 */
+&tlmm_pinmux {
+	pmx_i2c_1 {
+		/* CLK, DATA */
+		qcom,pins = <&gp 2>, <&gp 3>;
+		qcom,num-grp-pins = <2>;
+		qcom,pin-func = <3>;
+		label = "pmx_i2c_1";
+
+		i2c_1_active: i2c_1_active {
+			drive-strength = <2>; /* 2 MA */
+			bias-disable = <0>;   /* No PULL */
+		};
+
+		i2c_1_sleep: i2c_1_sleep {
+			drive-strength = <2>; /* 2 MA */
+			bias-disable = <0>;   /* No PULL */
+		};
+	};
+};
+
+&soc {
+	i2c_1: i2c@78b5000 { /* BLSP1 QUP1 */
+		compatible = "qcom,i2c-msm-v2";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		reg-names = "qup_phys_addr";
+		reg = <0x78b5000 0x1000>;
+		interrupt-names = "qup_irq";
+		interrupts = <0 95 0>;
+		clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
+			 <&clock_gcc clk_gcc_blsp1_qup1_i2c_apps_clk>;
+		clock-names = "iface_clk", "core_clk";
+		qcom,clk-freq-out = <100000>;
+		qcom,clk-freq-in  = <19200000>;
+		pinctrl-names = "i2c_active", "i2c_sleep";
+		pinctrl-0 = <&i2c_1_active>;
+		pinctrl-1 = <&i2c_1_sleep>;
+		qcom,noise-rjct-scl = <0>;
+		qcom,noise-rjct-sda = <0>;
+		dmas = <&dma_blsp1 4 64 0x20000020 0x20>,
+			<&dma_blsp1 5 32 0x20000020 0x20>;
+		dma-names = "tx", "rx";
+		qcom,master-id = <86>;
+
+		/* ON Semi NCP6335D external buck (VDD_APC).
+		 * live-dt/soc/i2c@78b5000/ncp6335d-regulator@1c
+		 * onnn,* decoded from BE u32: slew=3333 step=6250 min-slew=416
+		 * max-slew=3333 min-setpoint=600000 vsel-gpio=<gpio111 flag1>.
+		 * (Live pinctrl on this node was typo'd "pintrl-names" -> never
+		 * applied; the driver drives gpio 111 directly, so pinctrl omitted.)
+		 */
+		ncp6335d: ncp6335d-regulator@1c {
+			compatible = "onnn,ncp6335d-regulator";
+			reg = <0x1c>;
+			onnn,vsel = <0>;
+			onnn,slew-ns = <3333>;
+			onnn,step-size = <6250>;
+			onnn,min-slew-ns = <416>;
+			onnn,max-slew-ns = <3333>;
+			regulator-min-microvolt = <1050000>;
+			regulator-max-microvolt = <1350000>;
+			onnn,min-setpoint = <600000>;
+			onnn,vsel-gpio = <&msm_gpio 111 1>;
+			onnn,discharge-enable;
+			onnn,restore-reg;
+		};
+	};
+};
+
+/* Retarget the CPR loop onto the external NCP6335D buck.
+ * live-dt/soc/regulator@b018000: vdd-apc-optional-prim-supply -> ncp6335d
+ * (phandle match), while vdd-apc-supply stays on pm8916_s2 (base default).
+ */
+&apc_vreg_corner {
+	vdd-apc-optional-prim-supply = <&ncp6335d>;
 };
