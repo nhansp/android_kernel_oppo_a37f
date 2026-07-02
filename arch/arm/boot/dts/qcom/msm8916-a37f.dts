@@ -151,3 +151,123 @@
 	qcom,dsi-pref-sub-pan  = <&dsi_oppo15399tm_nt35521s>;
 	qcom,dsi-pref-sub1-pan = <&dsi_oppo15399truly_nt35521s>;
 };
+
+/* ---------------------------------------------------------------------------
+ * Touch: Synaptics S3203 on i2c_5 (i2c@78b9000) addr 0x20 + TI LM3630 backlight
+ * (addr 0x38). The base mtp carries a "synaptics,rmi4" node with 1080p coords
+ * and reset-gpio 12 — wrong for the A37f — so it (and the mtp 1080p gen-vkeys)
+ * is removed and replaced with the real S3203 config.
+ *
+ * Ground truth: live-dt/soc/i2c@78b9000/synaptics15009@20/ and ti_lm3630_bl@38/
+ * NOTE: this LineageOS msm8916 tree has NO "synaptics-s3203" touch driver, so
+ * the node is faithful-but-inert until that OPPO TP driver is ported; the DT is
+ * ready. lm3630_bl.c IS present (i2c id "lm3630_bl").
+ * ------------------------------------------------------------------------- */
+
+/* TP panel-ID detect gpios — live-dt/soc/pinctrl@1000000/tp_gpio_id{1,2,3}_config
+ * (gpio 109/114/119; active=pull-up, sleep=pull-down). ts_int_active (gpio 13)
+ * already exists in msm8916-pinctrl.dtsi and is reused.
+ */
+&tlmm_pinmux {
+	tp_gpio_id1_config {
+		qcom,pins = <&gp 109>;
+		qcom,pin-func = <0>;
+		qcom,num-grp-pins = <1>;
+		label = "tp_gpio_id1_config";
+		tp_gpio_id1_active: active {
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+		tp_gpio_id1_sleep: sleep {
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	tp_gpio_id2_config {
+		qcom,pins = <&gp 114>;
+		qcom,pin-func = <0>;
+		qcom,num-grp-pins = <1>;
+		label = "tp_gpio_id2_config";
+		tp_gpio_id2_active: active {
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+		tp_gpio_id2_sleep: sleep {
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+
+	tp_gpio_id3_config {
+		qcom,pins = <&gp 119>;
+		qcom,pin-func = <0>;
+		qcom,num-grp-pins = <1>;
+		label = "tp_gpio_id3_config";
+		tp_gpio_id3_active: active {
+			drive-strength = <2>;
+			bias-pull-up;
+		};
+		tp_gpio_id3_sleep: sleep {
+			drive-strength = <2>;
+			bias-pull-down;
+		};
+	};
+};
+
+&i2c_5 {
+	/* drop the base mtp rmi4 (1080p, reset-gpio 12) — not the A37f part */
+	/delete-node/ synaptics@20;
+
+	synaptics15009@20 {
+		compatible = "synaptics-s3203";
+		reg = <0x20>;
+		interrupt-parent = <&msm_gpio>;
+		interrupts = <13 0x2008>;
+		vdd_2v8-supply = <&pm8916_l17>;
+		vcc_i2c_1v8-supply = <&pm8916_l6>;
+		pinctrl-names = "default", "tp_id_pull_up", "tp_id_pull_down";
+		pinctrl-0 = <&ts_int_active &tp_gpio_id1_active
+			     &tp_gpio_id2_active &tp_gpio_id3_active>;
+		pinctrl-1 = <&tp_gpio_id1_active &tp_gpio_id2_active
+			     &tp_gpio_id3_active>;
+		pinctrl-2 = <&tp_gpio_id1_sleep &tp_gpio_id2_sleep
+			     &tp_gpio_id3_sleep>;
+		synaptics,irq-gpio = <&msm_gpio 13 0x2008>;
+		synaptics,id1-gpio = <&msm_gpio 109 0>;
+		synaptics,id2-gpio = <&msm_gpio 114 0>;
+		synaptics,id3-gpio = <&msm_gpio 119 0>;
+		synaptics,tx-rx-num = <13 23>;
+		synaptics,panel-coords = <1100 1745>;
+		synaptics,display-coords = <720 1280>;
+		synaptics,max-num-support = <10>;
+		synaptics,max-x-point = <10>;
+		synaptics,button-map = <100 140 1400>;
+		synaptics,black-gesture-enabled;
+		synaptics,i2c-pull-up;
+		synaptics,disable-gpios;
+		synaptics,power-down;
+	};
+
+	ti_lm3630_bl@38 {
+		compatible = "lm3630_bl";
+		reg = <0x38>;
+		bl_i2c_1v8-supply = <&pm8916_l6>;
+		ti,bl-enable-gpio = <&msm_gpio 69 0>;
+		ti,bank-a-ctrl = <0x05>;
+		ti,init-brt-led1 = <0xc8>;
+		ti,init-brt-led2 = <0xc8>;
+		ti,max-brt-led1 = <0xff>;
+		ti,max-brt-led2 = <0xff>;
+		ti,pwm-period = <0xff>;
+		ti,pwm-ctrl = <0x00>;
+		ti,pwm-active = <0x00>;
+	};
+};
+
+/* Remove the base mtp virtual-key map (1080p / synaptics_rmi4_i2c); the A37f
+ * S3203 carries its own synaptics,button-map and the live device has no gen-vkeys.
+ */
+&soc {
+	/delete-node/ gen-vkeys;
+};
