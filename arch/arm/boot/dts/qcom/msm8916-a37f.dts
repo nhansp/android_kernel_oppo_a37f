@@ -8,6 +8,7 @@
 
 #include "msm8916-mtp.dtsi"
 #include "msm8916-memory.dtsi"
+#include "dsi-panel-oppo15399-video.dtsi"
 
 / {
 	model = "OPPO A37f (15399)";
@@ -136,4 +137,17 @@
  */
 &apc_vreg_corner {
 	vdd-apc-optional-prim-supply = <&ncp6335d>;
+};
+
+/* ---------------------------------------------------------------------------
+ * Display: select the real A37f DSI panels over the base mtp jdi panel.
+ * live-dt/soc/qcom,mdss_dsi@1a98000: dsi-pref-prim-pan=boe (0x67),
+ * sub=tm_nt35521s (0x6c), sub1=truly_nt35521s (0x6d). Reset/enable/bklight
+ * GPIOs (25/97/98) already match the mtp base, so only panel selection here.
+ * Panel nodes live in dsi-panel-oppo15399-video.dtsi (ported from live-dt).
+ * ------------------------------------------------------------------------- */
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&dsi_oppo15399boe_ili9881c>;
+	qcom,dsi-pref-sub-pan  = <&dsi_oppo15399tm_nt35521s>;
+	qcom,dsi-pref-sub1-pan = <&dsi_oppo15399truly_nt35521s>;
 };
