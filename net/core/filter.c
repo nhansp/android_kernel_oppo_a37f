@@ -103,8 +103,6 @@ int sk_filter_trim_cap(struct sock *sk, struct sk_buff *skb, unsigned int cap)
 		unsigned int pkt_len = SK_RUN_FILTER(filter, skb);
 		err = pkt_len ? pskb_trim(skb, max(cap, pkt_len)) : -EPERM;
 	}
-	if (err >= 0)
-		err = BPF_CGROUP_RUN_PROG_INET_INGRESS(sk, skb);
 	rcu_read_unlock();
 
 	return err;

@@ -709,3 +709,4 @@ static inline void psched_ratecfg_getrate(struct tc_ratespec *res,
 }
 
 #endif
+#define QDISC_CB_PRIV_LEN 20
