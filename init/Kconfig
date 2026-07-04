@@ -1833,3 +1833,12 @@ config ASN1
 	  functions to call on what tags.
 
 source "kernel/Kconfig.locks"
+
+config BPF
+	bool
+	default n
+
+config BPF_SYSCALL
+	bool "Enable bpf() system call"
+	select BPF
+	default n
