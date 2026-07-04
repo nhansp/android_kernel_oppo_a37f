@@ -148,4 +148,7 @@ enum {
 	BPF_S_ANC_PAY_OFFSET,
 };
 
+#include <uapi/linux/bpf.h>
+#include <linux/bpf.h>
 #endif /* __LINUX_FILTER_H__ */
+
