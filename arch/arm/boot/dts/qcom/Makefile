@@ -276,3 +276,4 @@ $(obj)/../%.dtb: $(src)/%.dts FORCE
 dtbs: $(addprefix $(obj)/../,$(DTB_LIST))
 
 clean-files := *.dtb
+dtb-$(CONFIG_ARCH_MSM8916) += msm8916-mtp-15399.dtb

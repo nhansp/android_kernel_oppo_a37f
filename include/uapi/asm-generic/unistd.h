@@ -680,6 +680,13 @@ __SC_COMP(__NR_clock_adjtime, sys_clock_adjtime, compat_sys_clock_adjtime)
 #define __NR_syncfs 267
 __SYSCALL(__NR_syncfs, sys_syncfs)
 #define __NR_setns 268
+#define __NR_memfd_create 279
+#define __NR_bpf 280
+#define __NR_execveat 281
+#define __NR_userfaultfd 282
+#define __NR_membarrier 283
+#define __NR_mlock2 284
+#define __NR_copy_file_range 285
 __SYSCALL(__NR_setns, sys_setns)
 #define __NR_sendmmsg 269
 __SC_COMP(__NR_sendmmsg, sys_sendmmsg, compat_sys_sendmmsg)
@@ -707,7 +714,7 @@ __SYSCALL(__NR_seccomp, sys_seccomp)
 __SYSCALL(__NR_getrandom, sys_getrandom)
 
 #undef __NR_syscalls
-#define __NR_syscalls 279
+#define __NR_syscalls 286
 
 /*
  * All syscalls below here should go away really,

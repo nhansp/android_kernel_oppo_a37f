@@ -212,3 +212,10 @@ cond_syscall(sys_kcmp);
 
 /* operate on Secure Computing state */
 cond_syscall(sys_seccomp);
+cond_syscall(sys_bpf);
+cond_syscall(sys_memfd_create);
+cond_syscall(sys_execveat);
+cond_syscall(sys_userfaultfd);
+cond_syscall(sys_membarrier);
+cond_syscall(sys_mlock2);
+cond_syscall(sys_copy_file_range);
