@@ -196,3 +196,4 @@ x509.genkey:
 	@echo >>x509.genkey "subjectKeyIdentifier=hash"
 	@echo >>x509.genkey "authorityKeyIdentifier=keyid"
 endif
+obj-$(CONFIG_BPF) += bpf/

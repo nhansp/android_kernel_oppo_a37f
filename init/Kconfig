@@ -1842,3 +1842,8 @@ config BPF_SYSCALL
 	bool "Enable bpf() system call"
 	select BPF
 	default n
+
+config CGROUP_BPF
+	bool "cgroup eBPF programs"
+	depends on BPF_SYSCALL && CGROUPS
+	default n

@@ -33,11 +33,18 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 			enum bpf_attach_type type);
 void __cgroup_bpf_run_filter(struct sock *sk, struct sk_buff *skb,
 			     enum bpf_attach_type type);
-void __cgroup_bpf_run_filter_skb(struct sock *sk, struct sk_buff *skb,
+int __cgroup_bpf_run_filter_skb(struct sock *sk, struct sk_buff *skb,
 				 enum bpf_attach_type type);
 void __cgroup_bpf_run_filter_sk(struct sock *sk, enum bpf_attach_type type);
 
 static inline void cgroup_bpf_get(struct cgroup *cgrp) {}
 static inline void cgroup_bpf_put(struct cgroup *cgrp) {}
+
+
+#define BPF_CGROUP_RUN_PROG_INET_INGRESS(sk, skb) \
+    __cgroup_bpf_run_filter_skb(sk, skb, BPF_CGROUP_INET_INGRESS)
+
+#define BPF_CGROUP_RUN_PROG_INET_EGRESS(sk, skb) \
+    __cgroup_bpf_run_filter_skb(sk, skb, BPF_CGROUP_INET_EGRESS)
 
 #endif /* _BPF_CGROUP_H */

@@ -64,6 +64,7 @@
 
 #include <net/snmp.h>
 #include <net/ip.h>
+#include <linux/bpf-cgroup.h>
 #include <net/protocol.h>
 #include <net/route.h>
 #include <net/xfrm.h>
@@ -224,6 +225,14 @@ static inline int ip_skb_dst_mtu(struct sk_buff *skb)
 
 static int ip_finish_output(struct sk_buff *skb)
 {
+	int err;
+
+	err = BPF_CGROUP_RUN_PROG_INET_EGRESS(skb->sk, skb);
+	if (err) {
+		kfree_skb(skb);
+		return err;
+	}
+
 #if defined(CONFIG_NETFILTER) && defined(CONFIG_XFRM)
 	/* Policy lookup after SNAT yielded a new policy */
 	if (skb_dst(skb)->xfrm != NULL) {
