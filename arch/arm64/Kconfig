@@ -711,3 +711,14 @@ endif
 source "lib/Kconfig"
 
 source "arch/arm64/mm/Kconfig"
+
+config HAVE_CBPF_JIT
+	def_bool y
+
+config HAVE_EBPF_JIT
+	def_bool y
+
+config BPF_JIT
+	bool "enable BPF Just-In-Time compiler"
+	depends on HAVE_EBPF_JIT
+	default y

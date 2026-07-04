@@ -26,3 +26,4 @@ struct bpf_prog {
 };
 
 #endif
+void bpf_prog_unlock_free(struct bpf_prog *prog);
