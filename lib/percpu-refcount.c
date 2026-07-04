@@ -329,3 +329,10 @@ void percpu_ref_reinit(struct percpu_ref *ref)
 		__percpu_ref_switch_to_percpu(ref);
 }
 EXPORT_SYMBOL_GPL(percpu_ref_reinit);
+
+void __percpu *__alloc_percpu_gfp(size_t size, size_t align, gfp_t gfp)
+{
+	return __alloc_percpu(size, align);
+}
+EXPORT_SYMBOL_GPL(__alloc_percpu_gfp);
+

@@ -1,3 +1,6 @@
+/* WARNING: cgroup_bpf uses isolated TU. No <linux/cgroup.h> include.
+   If cgroup struct layout changes, verify offsets manually. */
+
 #include <linux/bpf.h>
 #include <linux/bpf-cgroup.h>
 
