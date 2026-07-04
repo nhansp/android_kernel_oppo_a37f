@@ -64,4 +64,65 @@ enum bpf_prog_type {
     BPF_PROG_TYPE_SCHED_ACT,
 };
 
+
+enum bpf_map_type {
+    BPF_MAP_TYPE_UNSPEC,
+    BPF_MAP_TYPE_HASH,
+    BPF_MAP_TYPE_ARRAY,
+    BPF_MAP_TYPE_PROG_ARRAY,
+    BPF_MAP_TYPE_PERF_EVENT_ARRAY,
+    BPF_MAP_TYPE_PERCPU_HASH,
+    BPF_MAP_TYPE_PERCPU_ARRAY,
+    BPF_MAP_TYPE_STACK_TRACE,
+    BPF_MAP_TYPE_CGROUP_ARRAY,
+    BPF_MAP_TYPE_LRU_HASH,
+    BPF_MAP_TYPE_LRU_PERCPU_HASH,
+    BPF_MAP_TYPE_LPM_TRIE,
+    BPF_MAP_TYPE_ARRAY_OF_MAPS,
+    BPF_MAP_TYPE_HASH_OF_MAPS,
+    BPF_MAP_TYPE_DEVMAP,
+    BPF_MAP_TYPE_SK_STORAGE = 24,
+    BPF_MAP_TYPE_RINGBUF = 27,
+};
+
+enum bpf_func_id {
+    BPF_FUNC_unspec,
+    __BPF_FUNC_MAX_ID,
+};
+
+enum bpf_attach_type {
+    BPF_CGROUP_INET_INGRESS,
+    BPF_CGROUP_INET_EGRESS,
+    BPF_CGROUP_INET_SOCK_CREATE,
+    BPF_CGROUP_INET4_BIND,
+    BPF_CGROUP_INET6_BIND,
+    BPF_CGROUP_INET4_CONNECT,
+    BPF_CGROUP_INET6_CONNECT,
+    BPF_CGROUP_UDP4_SENDMSG,
+    BPF_CGROUP_UDP6_SENDMSG,
+    BPF_CGROUP_SOCK_OPS,
+    BPF_CGROUP_DEVICE,
+    BPF_CGROUP_INET4_GETSOCKOPT,
+    BPF_CGROUP_INET4_SETSOCKOPT,
+    BPF_CGROUP_MAX,
+};
+#define MAX_BPF_ATTACH_TYPE BPF_CGROUP_MAX
+#define BPF_OBJ_NAME_LEN 16U
+union bpf_attr {
+	struct {
+		__u32	map_type;	__u32	key_size;	__u32	value_size;
+		__u32	max_entries;	__u32	map_flags;	__u32	inner_map_fd;
+	};
+	struct {	__u32		map_fd;	__aligned_u64	key;
+		__aligned_u64	value;	__aligned_u64	next_key;	__u64	flags;
+	};
+	struct {	__u32	prog_type;	__u32	insn_cnt;
+		__aligned_u64	insns;	__aligned_u64	license;
+		__u32	log_level;	__u32	log_size;	__aligned_u64	log_buf;
+		__u32	kern_version;	__u32	prog_flags;
+	};
+	struct {	__u32	target_fd;	__u32	attach_bpf_fd;
+		__u32	attach_type;	__u32	attach_flags;
+	};
+} __attribute__((aligned(8)));
 #endif /* _UAPI__LINUX_BPF_H__ */

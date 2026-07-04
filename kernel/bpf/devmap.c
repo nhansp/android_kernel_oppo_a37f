@@ -36,6 +36,7 @@
  * making system calls.
  */
 #include <linux/bpf.h>
+#include <linux/slab.h>
 #include <linux/jhash.h>
 #include <linux/filter.h>
 #include <linux/rculist_nulls.h>

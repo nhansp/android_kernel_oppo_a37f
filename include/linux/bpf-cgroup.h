@@ -2,7 +2,6 @@
 #define _BPF_CGROUP_H
 
 #include <linux/bpf.h>
-#include <linux/jump_label.h>
 #include <uapi/linux/bpf.h>
 
 struct sock;
@@ -12,8 +11,7 @@ struct sk_buff;
 
 #ifdef CONFIG_CGROUP_BPF
 
-extern struct static_key_false cgroup_bpf_enabled_key;
-#define cgroup_bpf_enabled static_branch_unlikely(&cgroup_bpf_enabled_key)
+#define cgroup_bpf_enabled (0)
 
 struct bpf_prog_list {
 	struct list_head node;

@@ -151,3 +151,4 @@ enum {
 #include <uapi/linux/bpf.h>
 #include <linux/bpf.h>
 #endif /* __LINUX_FILTER_H__ */
+#define BPF_PROG_RUN(prog, ctx) ({ 0; })

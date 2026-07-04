@@ -26,7 +26,6 @@
 struct cgroupfs_root;
 struct cgroup_subsys;
 struct inode;
-struct cgroup;
 struct css_id;
 struct eventfd_ctx;
 
@@ -911,3 +910,7 @@ static inline int subsys_cgroup_allow_attach(struct cgroup *cgrp,
 #endif /* !CONFIG_CGROUPS */
 
 #endif /* _LINUX_CGROUP_H */
+
+/* Minimal cgroup v2 stub for BPF */
+#define CGROUP2_SUPER_MAGIC 0x63677270
+extern struct cgroup *cgrp_dfl_root;

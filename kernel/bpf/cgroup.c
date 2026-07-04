@@ -3,8 +3,9 @@
 #include <linux/list.h>
 #include <linux/rcupdate.h>
 #include <linux/slab.h>
+#include <linux/cgroup.h>
+#include <linux/filter.h>
 
-/* Root-only single-prog cgroup BPF storage (no cgroup v2 hierarchy needed) */
 struct cgroup_bpf_prog {
 	struct bpf_prog *prog;
 	enum bpf_attach_type type;
@@ -17,10 +18,28 @@ static DEFINE_SPINLOCK(cgroup_bpf_lock);
 int __cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
 			enum bpf_attach_type type, u32 flags)
 {
-	struct cgroup_bpf_prog *entry;
+	struct cgroup_bpf_prog *entry, *old = NULL;
 
-	if (!prog || type >= BPF_CGROUP_MAX)
+	if (!prog || type >= MAX_BPF_ATTACH_TYPE)
 		return -EINVAL;
+
+	spin_lock(&cgroup_bpf_lock);
+	list_for_each_entry(entry, &cgroup_bpf_progs, node) {
+		if (entry->type == type) {
+			old = entry;
+			break;
+		}
+	}
+	spin_unlock(&cgroup_bpf_lock);
+
+	if (old) {
+		bpf_prog_put(old->prog);
+		spin_lock(&cgroup_bpf_lock);
+		list_del_rcu(&old->node);
+		spin_unlock(&cgroup_bpf_lock);
+		synchronize_rcu();
+		kfree(old);
+	}
 
 	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
 	if (!entry)
@@ -37,17 +56,17 @@ int __cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
 }
 
 int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
-			enum bpf_attach_type type)
+			enum bpf_attach_type type, u32 flags)
 {
-	struct cgroup_bpf_prog *entry, *tmp;
+	struct cgroup_bpf_prog *entry;
 
 	spin_lock(&cgroup_bpf_lock);
-	list_for_each_entry_safe(entry, tmp, &cgroup_bpf_progs, node) {
-		if (entry->prog == prog && entry->type == type) {
+	list_for_each_entry(entry, &cgroup_bpf_progs, node) {
+		if (entry->type == type) {
 			list_del_rcu(&entry->node);
 			spin_unlock(&cgroup_bpf_lock);
 			synchronize_rcu();
-			bpf_prog_put(prog);
+			bpf_prog_put(entry->prog);
 			kfree(entry);
 			return 0;
 		}
@@ -56,7 +75,6 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 	return -ENOENT;
 }
 
-/* Run filter on attach type - iterate global list */
 static int cgroup_bpf_run(int type, void *ctx)
 {
 	struct cgroup_bpf_prog *entry;
@@ -65,7 +83,7 @@ static int cgroup_bpf_run(int type, void *ctx)
 	rcu_read_lock();
 	list_for_each_entry_rcu(entry, &cgroup_bpf_progs, node) {
 		if (entry->type == type && entry->prog) {
-			ret = bpf_prog_run(entry->prog, ctx);
+			ret = BPF_PROG_RUN(entry->prog, ctx);
 			if (ret)
 				break;
 		}
@@ -74,47 +92,16 @@ static int cgroup_bpf_run(int type, void *ctx)
 	return ret;
 }
 
-#define BPF_RUN_FILTER(type, ctx, ret)		\
-	do {					\
-		rcu_read_lock();		\
-		ret = cgroup_bpf_run(type, ctx);\
-		rcu_read_unlock();		\
-	} while (0)
-
 int __cgroup_bpf_run_filter_skb(struct sock *sk, struct sk_buff *skb,
 				enum bpf_attach_type type)
-{
-	int ret = 0;
-	BPF_RUN_FILTER(type, skb, ret);
-	return ret;
-}
+{ return cgroup_bpf_run(type, skb); }
 
 int __cgroup_bpf_run_filter_sk(struct sock *sk, enum bpf_attach_type type)
-{
-	int ret = 0;
-	BPF_RUN_FILTER(type, sk, ret);
-	return ret;
-}
+{ return cgroup_bpf_run(type, sk); }
 
-int __cgroup_bpf_run_filter_sock_addr(struct sock *sk,
-				      struct sockaddr *uaddr,
-				      enum bpf_attach_type type, void *ignored)
-{
-	/* Stub for socket address hooks - requires sock struct access */
-	return 0;
-}
-
-int __cgroup_bpf_run_filter_setsockopt(struct sock *sk, int *level,
-				       int *optname, char __user *optval,
-				       int *optlen, char **kernel_optval)
-{
-	return 0;
-}
-
-int __cgroup_bpf_run_filter_getsockopt(struct sock *sk, int level,
-				       int optname, char __user *optval,
-				       int __user *optlen, int retval,
-				       int max_optlen)
-{
-	return retval;
-}
+int __cgroup_bpf_run_filter_sock_addr(struct sock *sk, struct sockaddr *uaddr,
+		enum bpf_attach_type type, void *ignored) { return 0; }
+int __cgroup_bpf_run_filter_setsockopt(struct sock *sk, int *level, int *optname,
+		char __user *optval, int *optlen, char **kernel_optval) { return 0; }
+int __cgroup_bpf_run_filter_getsockopt(struct sock *sk, int level, int optname,
+		char __user *optval, int __user *optlen, int retval, int max_optlen) { return retval; }

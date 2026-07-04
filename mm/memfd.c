@@ -61,7 +61,7 @@ SYSCALL_DEFINE2(memfd_create,
 	file->f_flags |= O_RDWR | O_LARGEFILE;
 
 	if (flags & MFD_ALLOW_SEALING)
-		file->f_inode->i_flags |= S_SEALABLE_FL;
+		// S_SEALABLE_FL not in 3.10
 
 	fd_install(fd, file);
 	kfree(name);

@@ -5534,3 +5534,17 @@ struct cgroup_subsys debug_subsys = {
 	.base_cftypes = debug_files,
 };
 #endif /* CONFIG_CGROUP_DEBUG */
+struct cgroup *cgrp_dfl_root;
+
+
+/* Minimal cgroup v2 support for BPF */
+struct cgroup *cgrp_dfl_root;
+EXPORT_SYMBOL(cgrp_dfl_root);
+
+struct cgroup *cgroup_get_from_fd(int fd)
+{
+	if (cgrp_dfl_root)
+		return cgrp_dfl_root;
+	return ERR_PTR(-EINVAL);
+}
+EXPORT_SYMBOL(cgroup_get_from_fd);
