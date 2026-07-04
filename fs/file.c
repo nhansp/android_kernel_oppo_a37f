@@ -942,3 +942,27 @@ int iterate_fd(struct files_struct *files, unsigned n,
 	return res;
 }
 EXPORT_SYMBOL(iterate_fd);
+
+int __close_range(unsigned int fd, unsigned int max_fd, unsigned int flags)
+{
+	unsigned int i;
+	struct files_struct *files = current->files;
+	int retval = 0;
+
+	if (fd > max_fd)
+		return -EINVAL;
+
+	spin_lock(&files->file_lock);
+	for (i = fd; i <= max_fd && i < files_fdtable(files)->max_fds; i++) {
+		struct file *file = files_fdtable(files)->fd[i];
+		if (!file)
+			continue;
+		rcu_assign_pointer(files_fdtable(files)->fd[i], NULL);
+		__clear_open_fd(i, files_fdtable(files));
+		spin_unlock(&files->file_lock);
+		filp_close(file, files);
+		spin_lock(&files->file_lock);
+	}
+	spin_unlock(&files->file_lock);
+	return retval;
+}

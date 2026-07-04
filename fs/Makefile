@@ -131,3 +131,5 @@ obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
 
 # Patched by YAFFS
 obj-$(CONFIG_YAFFS_FS)		+= yaffs2/
+obj-y += close_range.o
+obj-y += epoll_pwait2.o
