@@ -1,3 +1,4 @@
+struct bpf_prog;
 #ifndef _LINUX_BPF_H
 #define _LINUX_BPF_H 1
 
