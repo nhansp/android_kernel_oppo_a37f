@@ -162,7 +162,7 @@ static struct map_iter *map_iter(struct seq_file *m)
 
 static struct bpf_map *seq_file_to_map(struct seq_file *m)
 {
-	return file_inode(m->file)->i_private;
+	return m->private;
 }
 
 static void map_iter_free(struct map_iter *iter)
@@ -352,7 +352,7 @@ static const struct inode_operations bpf_dir_iops = {
 	.mknod		= bpf_mkobj,
 	.mkdir		= bpf_mkdir,
 	.rmdir		= simple_rmdir,
-	.rename2	= simple_rename,
+	.rename	= simple_rename,
 	.link		= simple_link,
 	.unlink		= simple_unlink,
 };
@@ -537,7 +537,7 @@ static void bpf_evict_inode(struct inode *inode)
  */
 static int bpf_show_options(struct seq_file *m, struct dentry *root)
 {
-	umode_t mode = d_inode(root)->i_mode & S_IALLUGO & ~S_ISVTX;
+	umode_t mode = root->d_inode->i_mode & S_IALLUGO & ~S_ISVTX;
 
 	if (mode != S_IRWXUGO)
 		seq_printf(m, ",mode=%o", mode);
