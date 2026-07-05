@@ -105,3 +105,22 @@ int __cgroup_bpf_run_filter_setsockopt(struct sock *sk, int *level, int *optname
 		char __user *optval, int *optlen, char **kernel_optval) { return 0; }
 int __cgroup_bpf_run_filter_getsockopt(struct sock *sk, int level, int optname,
 		char __user *optval, int __user *optlen, int retval, int max_optlen) { return retval; }
+
+/* Syscall-path wrappers. __cgroup_bpf_*() already take cgroup_bpf_lock. */
+int cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
+		      enum bpf_attach_type type, u32 flags)
+{
+	return __cgroup_bpf_attach(cgrp, prog, type, flags);
+}
+
+int cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
+		      enum bpf_attach_type type, u32 flags)
+{
+	return __cgroup_bpf_detach(cgrp, prog, type, flags);
+}
+
+int cgroup_bpf_query(struct cgroup *cgrp, const union bpf_attr *attr,
+		     union bpf_attr __user *uattr)
+{
+	return -EINVAL;
+}

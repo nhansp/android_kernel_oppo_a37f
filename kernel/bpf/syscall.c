@@ -10,6 +10,7 @@
  * General Public License for more details.
  */
 #include <linux/bpf.h>
+#include <linux/bpf_compat_310.h>
 #include <linux/cgroup.h>
 #include <linux/security.h>
 #include <linux/bpf-cgroup.h>

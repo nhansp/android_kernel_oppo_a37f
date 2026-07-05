@@ -27,6 +27,7 @@
 #include <linux/random.h>
 #include <linux/moduleloader.h>
 #include <linux/bpf.h>
+#include <linux/bpf_compat_310.h>
 #include <linux/frame.h>
 #include <linux/rbtree_latch.h>
 #include <linux/kallsyms.h>
@@ -55,26 +56,6 @@
 #define CTX	regs[BPF_REG_CTX]
 #define IMM	insn->imm
 
-/* No hurry in this branch
- *
- * Exported for the bpf jit load helper.
- */
-void *bpf_internal_load_pointer_neg_helper(const struct sk_buff *skb, int k, unsigned int size)
-{
-	u8 *ptr = NULL;
-
-	if (k >= SKF_NET_OFF) {
-		ptr = skb_network_header(skb) + k - SKF_NET_OFF;
-	} else if (k >= SKF_LL_OFF) {
-		if (unlikely(!skb_mac_header_was_set(skb)))
-			return NULL;
-		ptr = skb_mac_header(skb) + k - SKF_LL_OFF;
-	}
-	if (ptr >= skb->head && ptr + size <= skb_tail_pointer(skb))
-		return ptr;
-
-	return NULL;
-}
 
 struct bpf_prog *bpf_prog_alloc(unsigned int size, gfp_t gfp_extra_flags)
 {
@@ -1384,7 +1365,6 @@ struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *fp, int *err)
 	 * valid program, which in this case would simply not
 	 * be JITed, but falls back to the interpreter.
 	 */
-	fp = bpf_int_jit_compile(fp);
 #ifdef CONFIG_BPF_JIT_ALWAYS_ON
 	if (!fp->jited) {
 		*err = -ENOTSUPP;
@@ -1648,17 +1628,10 @@ const struct bpf_func_proto bpf_tail_call_proto = {
  * It is encouraged to implement bpf_int_jit_compile() instead, so that
  * eBPF and implicitly also cBPF can get JITed!
  */
-struct bpf_prog * __weak bpf_int_jit_compile(struct bpf_prog *prog)
-{
-	return prog;
-}
 
 /* Stub for JITs that support eBPF. All cBPF code gets transformed into
  * eBPF by the kernel and is later compiled by bpf_int_jit_compile().
  */
-void __weak bpf_jit_compile(struct bpf_prog *prog)
-{
-}
 
 bool __weak bpf_helper_changes_skb_data(void *func)
 {

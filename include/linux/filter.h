@@ -154,6 +154,8 @@ enum {
 #include <linux/bpf_verifier.h>
 
 struct bpf_prog_aux {
+	struct work_struct	work;
+	struct list_head	ksym_lnode;
 	atomic_t refcnt;
 	u32 max_ctx_offset;
 	struct rcu_head rcu;
@@ -181,13 +183,6 @@ struct bpf_prog {
 	unsigned int		(*bpf_func)(const void *, const struct bpf_insn *);
 };
 
-#define BPF_CALL_0(fn)		((void *)(fn))
-#define BPF_CALL_1(fn)		((void *)(fn))
-#define BPF_CALL_2(fn)		((void *)(fn))
-#define BPF_CALL_3(fn)		((void *)(fn))
-#define BPF_CALL_4(fn)		((void *)(fn))
-#define BPF_CALL_5(fn)		((void *)(fn))
-#define BPF_PROG_RUN(prog, ctx)	({ 0; })
 #define MAX_BPF_STACK		512
 
 static inline unsigned int bpf_prog_size(unsigned int proglen) {
@@ -195,10 +190,57 @@ static inline unsigned int bpf_prog_size(unsigned int proglen) {
 }
 
 
-extern u64 __bpf_call_base;
+u64 __bpf_call_base(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
 
-/* eBPF instruction-builder macros (restored from ref - were missing) */
+/* ==== eBPF macros restored from ref (real, replacing stubs) ==== */
+
+#define BPF_REG_ARG1	BPF_REG_1
+#define BPF_REG_ARG2	BPF_REG_2
+#define BPF_REG_ARG3	BPF_REG_3
+#define BPF_REG_ARG4	BPF_REG_4
+#define BPF_REG_ARG5	BPF_REG_5
+#define BPF_REG_CTX	BPF_REG_6
+#define BPF_REG_FP	BPF_REG_10
+
+/* Additional register mappings for converted user programs. */
+#define BPF_REG_A	BPF_REG_0
+#define BPF_REG_X	BPF_REG_7
+#define BPF_REG_TMP	BPF_REG_8
+
+/* Kernel hidden auxiliary/helper register for hardening step.
+ * Only used by eBPF JITs. It's nothing more than a temporary
+ * register that JITs use internally, only that here it's part
+ * of eBPF instructions that have been rewritten for blinding
+ * constants. See JIT pre-step in bpf_jit_blind_constants().
+ */
+#define BPF_REG_AX		MAX_BPF_REG
+#define MAX_BPF_JIT_REG		(MAX_BPF_REG + 1)
+
+/* unused opcode to mark special call to bpf_tail_call() helper */
+#define BPF_TAIL_CALL	0xf0
+
+/* As per nm, we expose JITed images as text (code) section for
+ * kallsyms. That way, tools like perf can find it to match
+ * addresses.
+ */
+#define BPF_SYM_ELF_TYPE	't'
+
+/* BPF program can access up to 512 bytes of stack space. */
+#define MAX_BPF_STACK	512
+
+/* Helper macros for filter block array initializers. */
+
+/* ALU ops on registers, bpf_add|sub|...: dst_reg += src_reg */
+
+#define BPF_ALU_REG(CLASS, OP, DST, SRC)			\
+	((struct bpf_insn) {					\
+		.code  = CLASS | BPF_OP(OP) | BPF_X,		\
+		.dst_reg = DST,					\
+		.src_reg = SRC,					\
+		.off   = 0,					\
+		.imm   = 0 })
+
 #define BPF_ALU64_REG(OP, DST, SRC)				\
 	((struct bpf_insn) {					\
 		.code  = BPF_ALU64 | BPF_OP(OP) | BPF_X,	\
@@ -444,5 +486,100 @@ extern u64 __bpf_call_base;
 		.src_reg = 0,					\
 		.off   = 0,					\
 		.imm   = 0 })
+
+/* Internal classic blocks for direct assignment */
+
+#define __BPF_STMT(CODE, K)					\
+	((struct sock_filter) BPF_STMT(CODE, K))
+
+#define __BPF_JUMP(CODE, K, JT, JF)				\
+	((struct sock_filter) BPF_JUMP(CODE, K, JT, JF))
+
+#define bytes_to_bpf_size(bytes)				\
+({								\
+	int bpf_size = -EINVAL;					\
+								\
+	if (bytes == sizeof(u8))				\
+		bpf_size = BPF_B;				\
+	else if (bytes == sizeof(u16))				\
+		bpf_size = BPF_H;				\
+	else if (bytes == sizeof(u32))				\
+		bpf_size = BPF_W;				\
+	else if (bytes == sizeof(u64))				\
+		bpf_size = BPF_DW;				\
+								\
+	bpf_size;						\
+})
+
+#define BPF_SIZEOF(type)					\
+	({							\
+		const int __size = bytes_to_bpf_size(sizeof(type)); \
+		BUILD_BUG_ON(__size < 0);			\
+		__size;						\
+	})
+
+#define BPF_FIELD_SIZEOF(type, field)				\
+	({							\
+		const int __size = bytes_to_bpf_size(FIELD_SIZEOF(type, field)); \
+		BUILD_BUG_ON(__size < 0);			\
+		__size;						\
+	})
+
+#define __BPF_MAP_0(m, v, ...) v
+#define __BPF_MAP_1(m, v, t, a, ...) m(t, a)
+#define __BPF_MAP_2(m, v, t, a, ...) m(t, a), __BPF_MAP_1(m, v, __VA_ARGS__)
+#define __BPF_MAP_3(m, v, t, a, ...) m(t, a), __BPF_MAP_2(m, v, __VA_ARGS__)
+#define __BPF_MAP_4(m, v, t, a, ...) m(t, a), __BPF_MAP_3(m, v, __VA_ARGS__)
+#define __BPF_MAP_5(m, v, t, a, ...) m(t, a), __BPF_MAP_4(m, v, __VA_ARGS__)
+
+#define __BPF_REG_0(...) __BPF_PAD(5)
+#define __BPF_REG_1(...) __BPF_MAP(1, __VA_ARGS__), __BPF_PAD(4)
+#define __BPF_REG_2(...) __BPF_MAP(2, __VA_ARGS__), __BPF_PAD(3)
+#define __BPF_REG_3(...) __BPF_MAP(3, __VA_ARGS__), __BPF_PAD(2)
+#define __BPF_REG_4(...) __BPF_MAP(4, __VA_ARGS__), __BPF_PAD(1)
+#define __BPF_REG_5(...) __BPF_MAP(5, __VA_ARGS__)
+
+#define __BPF_MAP(n, ...) __BPF_MAP_##n(__VA_ARGS__)
+#define __BPF_REG(n, ...) __BPF_REG_##n(__VA_ARGS__)
+
+#define __BPF_CAST(t, a)						       \
+	(__force t)							       \
+	(__force							       \
+	 typeof(__builtin_choose_expr(sizeof(t) == sizeof(unsigned long),      \
+				      (unsigned long)0, (t)0))) a
+#define __BPF_V void
+#define __BPF_N
+
+#define __BPF_DECL_ARGS(t, a) t   a
+#define __BPF_DECL_REGS(t, a) u64 a
+
+#define __BPF_PAD(n)							       \
+	__BPF_MAP(n, __BPF_DECL_ARGS, __BPF_N, u64, __ur_1, u64, __ur_2,       \
+		  u64, __ur_3, u64, __ur_4, u64, __ur_5)
+
+#define BPF_CALL_x(x, name, ...)					       \
+	static __always_inline						       \
+	u64 ____##name(__BPF_MAP(x, __BPF_DECL_ARGS, __BPF_V, __VA_ARGS__));   \
+	u64 name(__BPF_REG(x, __BPF_DECL_REGS, __BPF_N, __VA_ARGS__));	       \
+	u64 name(__BPF_REG(x, __BPF_DECL_REGS, __BPF_N, __VA_ARGS__))	       \
+	{								       \
+		return ____##name(__BPF_MAP(x,__BPF_CAST,__BPF_N,__VA_ARGS__));\
+	}								       \
+	static __always_inline						       \
+	u64 ____##name(__BPF_MAP(x, __BPF_DECL_ARGS, __BPF_V, __VA_ARGS__))
+
+#define BPF_CALL_0(name, ...)	BPF_CALL_x(0, name, __VA_ARGS__)
+#define BPF_CALL_1(name, ...)	BPF_CALL_x(1, name, __VA_ARGS__)
+#define BPF_CALL_2(name, ...)	BPF_CALL_x(2, name, __VA_ARGS__)
+#define BPF_CALL_3(name, ...)	BPF_CALL_x(3, name, __VA_ARGS__)
+#define BPF_CALL_4(name, ...)	BPF_CALL_x(4, name, __VA_ARGS__)
+#define BPF_CALL_5(name, ...)	BPF_CALL_x(5, name, __VA_ARGS__)
+
+/* eBPF interpreter dispatch (real, replaces the ({0;}) stub) */
+static inline unsigned int bpf_call_func(const struct bpf_prog *prog, const void *ctx)
+{
+	return prog->bpf_func(ctx, prog->insnsi);
+}
+#define BPF_PROG_RUN(filter, ctx)  bpf_call_func(filter, ctx)
 
 #endif /* __LINUX_FILTER_H__ */

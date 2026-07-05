@@ -258,7 +258,6 @@ struct bpf_event_entry {
 u64 bpf_tail_call(u64 ctx, u64 r2, u64 index, u64 r4, u64 r5);
 u64 bpf_get_stackid(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);
 
-bool bpf_prog_array_compatible(struct bpf_array *array, const struct bpf_prog *fp);
 
 const struct bpf_func_proto *bpf_get_trace_printk_proto(void);
 
@@ -503,6 +502,8 @@ static inline u32 bpf_tcp_sock_convert_ctx_access(enum bpf_access_type type,
 #endif /* _LINUX_BPF_H */
 struct bpf_prog *bpf_prog_alloc(unsigned int size, gfp_t flags);
 void bpf_prog_free(struct bpf_prog *prog);
+#ifdef CONFIG_BPF_JIT
 void bpf_prog_kallsyms_add(struct bpf_prog *prog);
 void bpf_prog_kallsyms_del(struct bpf_prog *prog);
+#endif
 struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *prog, int *err);

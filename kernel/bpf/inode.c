@@ -22,6 +22,8 @@
 #include <linux/parser.h>
 #include <linux/filter.h>
 #include <linux/bpf.h>
+#include <linux/slab.h>
+#include <linux/security.h>
 
 enum bpf_type {
 	BPF_TYPE_UNSPEC	= 0,
@@ -378,7 +380,7 @@ static int bpf_obj_do_pin(const struct filename *pathname, void *raw,
 	if (ret)
 		goto out;
 
-	dir = d_inode(path.dentry);
+	dir = path.dentry->d_inode;
 	if (dir->i_op != &bpf_dir_iops) {
 		ret = -EPERM;
 		goto out;
@@ -429,7 +431,7 @@ static void *bpf_obj_do_get(const struct filename *pathname,
 	if (ret)
 		return ERR_PTR(ret);
 
-	inode = d_backing_inode(path.dentry);
+	inode = path.dentry->d_inode;
 	ret = inode_permission(inode, ACC_MODE(flags));
 	if (ret)
 		goto out;
@@ -513,7 +515,7 @@ struct bpf_prog *bpf_prog_get_type_path(const char *name, enum bpf_prog_type typ
 	int ret = kern_path(name, LOOKUP_FOLLOW, &path);
 	if (ret)
 		return ERR_PTR(ret);
-	prog = __get_prog_inode(d_backing_inode(path.dentry), type);
+	prog = __get_prog_inode(path.dentry->d_inode, type);
 	if (!IS_ERR(prog))
 		touch_atime(&path);
 	path_put(&path);
