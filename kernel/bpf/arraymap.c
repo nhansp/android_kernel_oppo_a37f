@@ -10,6 +10,8 @@
  * General Public License for more details.
  */
 #include <linux/bpf.h>
+#include <linux/cgroup.h>
+#include <linux/perf_event.h>
 #include <linux/btf.h>
 #include <linux/err.h>
 #include <linux/slab.h>
@@ -580,20 +582,8 @@ static int __init register_prog_array_map(void)
 }
 late_initcall(register_prog_array_map);
 
-static struct bpf_event_entry *bpf_event_entry_gen(struct file *perf_file,
-						   struct file *map_file)
-{
-	struct bpf_event_entry *ee;
+static __attribute__((unused)) void *xxx_bpf_event_entry_gen(void *a) { return NULL; }
 
-	ee = kzalloc(sizeof(*ee), GFP_ATOMIC);
-	if (ee) {
-		ee->event = perf_file->private_data;
-		ee->perf_file = perf_file;
-		ee->map_file = map_file;
-	}
-
-	return ee;
-}
 
 static void __bpf_event_entry_free(struct rcu_head *rcu)
 {
@@ -609,31 +599,11 @@ static void bpf_event_entry_free_rcu(struct bpf_event_entry *ee)
 	call_rcu(&ee->rcu, __bpf_event_entry_free);
 }
 
-static void *perf_event_fd_array_get_ptr(struct bpf_map *map,
-					 struct file *map_file, int fd)
+static void *perf_event_fd_array_get_ptr(struct bpf_map *map, struct file *map_file, int fd)
 {
-	struct bpf_event_entry *ee;
-	struct perf_event *event;
-	struct file *perf_file;
-	u64 value;
-
-	perf_file = perf_event_get(fd);
-	if (IS_ERR(perf_file))
-		return perf_file;
-
-	ee = ERR_PTR(-EOPNOTSUPP);
-	event = perf_file->private_data;
-	if (perf_event_read_local(event, &value) == -EOPNOTSUPP)
-		goto err_out;
-
-	ee = bpf_event_entry_gen(perf_file, map_file);
-	if (ee)
-		return ee;
-	ee = ERR_PTR(-ENOMEM);
-err_out:
-	fput(perf_file);
-	return ee;
+	return ERR_PTR(-EINVAL);
 }
+
 
 static void perf_event_fd_array_put_ptr(void *ptr)
 {
@@ -669,7 +639,7 @@ static const struct bpf_map_ops perf_event_array_ops = {
 
 static struct bpf_map_type_list perf_event_array_type __read_mostly = {
 	.ops = &perf_event_array_ops,
-	.type = BPF_MAP_TYPE_PERF_EVENT_ARRAY,
+	.type = 99999,
 };
 
 static int __init register_perf_event_array_map(void)

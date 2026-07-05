@@ -501,9 +501,7 @@ static inline u32 bpf_tcp_sock_convert_ctx_access(enum bpf_access_type type,
 
 #endif /* _LINUX_BPF_H */
 struct bpf_prog *bpf_prog_alloc(unsigned int size, gfp_t flags);
-struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *prog, int *err);
-struct bpf_prog *bpf_prog_alloc_id(struct bpf_prog *prog, int *err);
-struct bpf_prog *bpf_prog_free_id(struct bpf_prog *prog, int *err);
 void bpf_prog_free(struct bpf_prog *prog);
 void bpf_prog_kallsyms_add(struct bpf_prog *prog);
 void bpf_prog_kallsyms_del(struct bpf_prog *prog);
+struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *prog, int *err);

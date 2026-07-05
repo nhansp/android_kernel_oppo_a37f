@@ -149,7 +149,8 @@ enum {
 };
 
 
-/* eBPF additions - additive, coexist with classic cBPF */
+/* eBPF additions - additive, coexist with classic cBPF above */
+
 #include <uapi/linux/bpf.h>
 
 struct bpf_prog_aux {
@@ -157,6 +158,13 @@ struct bpf_prog_aux {
 	u32 max_ctx_offset;
 	struct rcu_head rcu;
 	u32 id;
+	const void *ops;
+	u32 used_map_cnt;
+	struct bpf_map **used_maps;
+	struct user_struct *user;
+	struct bpf_prog *prog;
+	u64 load_time;
+	char name[16];
 };
 
 struct bpf_prog {
@@ -165,6 +173,9 @@ struct bpf_prog {
 	u32			len;
 	enum bpf_prog_type	type;
 	struct bpf_insn		*insns;
+	struct bpf_insn		*insnsi;
+	struct bpf_prog		*orig_prog;
+	bool			gpl_compatible;
 	struct bpf_prog_aux	*aux;
 	unsigned int		(*bpf_func)(const void *, const struct bpf_insn *);
 };
@@ -177,5 +188,9 @@ struct bpf_prog {
 #define BPF_CALL_5(fn)		((void *)(fn))
 #define BPF_PROG_RUN(prog, ctx)	({ 0; })
 #define MAX_BPF_STACK		512
+
+static inline unsigned int bpf_prog_size(unsigned int proglen) {
+	return max_t(unsigned int, sizeof(struct bpf_prog), proglen * sizeof(struct bpf_insn));
+}
 
 #endif /* __LINUX_FILTER_H__ */

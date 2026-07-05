@@ -174,7 +174,6 @@ struct hw_perf_event {
 #define PERF_HES_UPTODATE	0x02 /* event->count up-to-date */
 #define PERF_HES_ARCH		0x04
 
-struct perf_event;
 
 /*
  * Common implementation detail of pmu::{start,commit,cancel}_txn
