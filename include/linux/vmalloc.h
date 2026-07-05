@@ -202,3 +202,10 @@ do {						\
 #endif
 
 #endif /* _LINUX_VMALLOC_H */
+#ifndef VMALLOC_USER_NODE_FLAGS_DEFINED
+#define VMALLOC_USER_NODE_FLAGS_DEFINED
+static inline void *vmalloc_user_node_flags(unsigned long size, int node, gfp_t flags)
+{
+	return vmalloc_user(size);
+}
+#endif

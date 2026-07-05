@@ -60,6 +60,7 @@ struct bpf_map {
 	u32 max_entries;
 	u32 map_flags;
 	u32 pages;
+atomic_t refcnt;
 	u32 id;
 	u32 btf_key_type_id;
 	u32 btf_value_type_id;
@@ -499,3 +500,10 @@ static inline u32 bpf_tcp_sock_convert_ctx_access(enum bpf_access_type type,
 #endif /* CONFIG_INET */
 
 #endif /* _LINUX_BPF_H */
+struct bpf_prog *bpf_prog_alloc(unsigned int size, gfp_t flags);
+struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *prog, int *err);
+struct bpf_prog *bpf_prog_alloc_id(struct bpf_prog *prog, int *err);
+struct bpf_prog *bpf_prog_free_id(struct bpf_prog *prog, int *err);
+void bpf_prog_free(struct bpf_prog *prog);
+void bpf_prog_kallsyms_add(struct bpf_prog *prog);
+void bpf_prog_kallsyms_del(struct bpf_prog *prog);

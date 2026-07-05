@@ -914,3 +914,4 @@ static inline int subsys_cgroup_allow_attach(struct cgroup *cgrp,
 /* Minimal cgroup v2 stub for BPF */
 #define CGROUP2_SUPER_MAGIC 0x63677270
 extern struct cgroup *cgrp_dfl_root;
+struct cgroup *cgroup_get_from_fd(int fd);

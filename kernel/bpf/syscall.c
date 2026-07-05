@@ -49,7 +49,7 @@ static LIST_HEAD(bpf_map_types);
 
 static struct bpf_map *find_and_alloc_map(union bpf_attr *attr)
 {
-	const struct bpf_map_ops *ops __maybe_unused;
+	const struct bpf_map_ops *ops __attribute__((unused));
 	struct bpf_map_type_list *tl;
 	struct bpf_map *map;
 	int err;
@@ -78,20 +78,43 @@ void bpf_register_map_type(struct bpf_map_type_list *tl)
 	list_add(&tl->list_node, &bpf_map_types);
 }
 
-static void *__bpf_map_area_alloc(size_t size, bool mmapable)
+static void *bpf_map_area_alloc(size_t size, bool mmapable)
+{
+	return kmalloc(size, GFP_USER | __GFP_NOWARN);
+}
+/* orig */ static void *__bpf_map_area_alloc_orig(size_t size, bool mmapable)
+{
+	/* We definitely need __GFP_NORETRY, so OOM killer doesn't
+	 * trigger under memory pressure as we really just want to
+	 * fail instead.
+	 */
+	const gfp_t flags = __GFP_NOWARN | __GFP_NORETRY | __GFP_ZERO;
+	void *area;
+
+	/* kmalloc()'ed memory can't be mmap()'ed */
+	if (!mmapable && size <= (PAGE_SIZE << PAGE_ALLOC_COSTLY_ORDER)) {		area = kmalloc(size, GFP_USER | flags);
+		if (area != NULL)
+			return area;
+	}
+
+	if (mmapable) {
+		BUG_ON(!PAGE_ALIGNED(size));
+		return vmalloc_user_node_flags(size, /*numa_node*/ 0, GFP_KERNEL |
+					       __GFP_REPEAT | flags);
+	}
+
+	return __vmalloc(size, GFP_KERNEL | __GFP_HIGHMEM | flags,
+			 PAGE_KERNEL);
+}
+
+void *bpf_map_area_alloc(size_t size)
 {
 	return kmalloc(size, GFP_USER | __GFP_NOWARN);
 }
 
-
-void *bpf_map_area_alloc(size_t size)
-{
-	return __bpf_map_area_alloc(size, false);
-}
-
 void *bpf_map_area_mmapable_alloc(size_t size, int numa_node)
 {
-	return __bpf_map_area_alloc(size, true);
+	return NULL;
 }
 
 void bpf_map_area_free(void *area)
@@ -112,7 +135,7 @@ int bpf_map_precharge_memlock(u32 pages)
 	return 0;
 }
 
-static int bpf_charge_memlock(struct user_struct *user, u32 pages)
+static __attribute__((unused)) int bpf_charge_memlock(struct user_struct *user, u32 pages)
 {
 	unsigned long memlock_limit = rlimit(RLIMIT_MEMLOCK) >> PAGE_SHIFT;
 
@@ -123,12 +146,12 @@ static int bpf_charge_memlock(struct user_struct *user, u32 pages)
 	return 0;
 }
 
-static void bpf_uncharge_memlock(struct user_struct *user, u32 pages)
+static __attribute__((unused)) void bpf_uncharge_memlock(struct user_struct *user, u32 pages)
 {
 	atomic_long_sub(pages, &user->locked_vm);
 }
 
-static int bpf_map_init_memlock(struct bpf_map *map)
+static __attribute__((unused)) int bpf_map_init_memlock(struct bpf_map *map)
 {
 	struct user_struct *user = get_current_user();
 	int ret;
@@ -142,7 +165,7 @@ static int bpf_map_init_memlock(struct bpf_map *map)
 	return ret;
 }
 
-static void bpf_map_release_memlock(struct bpf_map *map)
+static __attribute__((unused)) void bpf_map_release_memlock(struct bpf_map *map)
 {
 	struct user_struct *user = map->user;
 	bpf_uncharge_memlock(user, map->pages);
@@ -166,7 +189,7 @@ void bpf_map_uncharge_memlock(struct bpf_map *map, u32 pages)
 	map->pages -= pages;
 }
 
-static int bpf_map_alloc_id(struct bpf_map *map)
+static __attribute__((unused)) int bpf_map_alloc_id(struct bpf_map *map)
 {
 	int id;
 
@@ -182,7 +205,7 @@ static int bpf_map_alloc_id(struct bpf_map *map)
 	return id > 0 ? 0 : id;
 }
 
-static void bpf_map_free_id(struct bpf_map *map, bool do_idr_lock)
+static __attribute__((unused)) void bpf_map_free_id(struct bpf_map *map, bool do_idr_lock)
 {
 	if (do_idr_lock)
 		spin_lock_bh(&map_idr_lock);
@@ -198,7 +221,7 @@ static void bpf_map_free_id(struct bpf_map *map, bool do_idr_lock)
 }
 
 /* called from workqueue */
-static void bpf_map_free_deferred(struct work_struct *work)
+static __attribute__((unused)) void bpf_map_free_deferred(struct work_struct *work)
 {
 	struct bpf_map *map = container_of(work, struct bpf_map, work);
 
@@ -208,7 +231,7 @@ static void bpf_map_free_deferred(struct work_struct *work)
 	map->ops->map_free(map);
 }
 
-static void bpf_map_put_uref(struct bpf_map *map)
+static __attribute__((unused)) void bpf_map_put_uref(struct bpf_map *map)
 {
 	if (atomic_dec_and_test(&map->usercnt)) {
 		if (map->map_type == BPF_MAP_TYPE_PROG_ARRAY)
@@ -219,7 +242,7 @@ static void bpf_map_put_uref(struct bpf_map *map)
 /* decrement map refcnt and schedule it for freeing via workqueue
  * (unrelying map implementation ops->map_free() might sleep)
  */
-static void __bpf_map_put(struct bpf_map *map, bool do_idr_lock)
+static __attribute__((unused)) void __bpf_map_put(struct bpf_map *map, bool do_idr_lock)
 {
 	if (atomic_dec_and_test(&map->refcnt)) {
 		/* bpf_map_free_id() must be called first */
@@ -241,7 +264,7 @@ void bpf_map_put_with_uref(struct bpf_map *map)
 	bpf_map_put(map);
 }
 
-static int bpf_map_release(struct inode *inode, struct file *filp)
+static __attribute__((unused)) int bpf_map_release(struct inode *inode, struct file *filp)
 {
 	struct bpf_map *map = filp->private_data;
 
@@ -253,7 +276,7 @@ static int bpf_map_release(struct inode *inode, struct file *filp)
 }
 
 #ifdef CONFIG_PROC_FS
-static int bpf_map_show_fdinfo(struct seq_file *m, struct file *filp)
+static __attribute__((unused)) int bpf_map_show_fdinfo(struct seq_file *m, struct file *filp)
 {
         const struct bpf_map *map = filp->private_data;
 
@@ -302,7 +325,7 @@ static unsigned int bpf_map_poll(struct file *filp, struct poll_table_struct *pt
 }
 
 /* called for any extra memory-mapped regions (except initial) */
-static void bpf_map_mmap_open(struct vm_area_struct *vma)
+static __attribute__((unused)) void bpf_map_mmap_open(struct vm_area_struct *vma)
 {
 	struct bpf_map *map = vma->vm_file->private_data;
 
@@ -316,7 +339,7 @@ static void bpf_map_mmap_open(struct vm_area_struct *vma)
 }
 
 /* called for all unmapped memory region (including initial) */
-static void bpf_map_mmap_close(struct vm_area_struct *vma)
+static __attribute__((unused)) void bpf_map_mmap_close(struct vm_area_struct *vma)
 {
 	struct bpf_map *map = vma->vm_file->private_data;
 
@@ -334,7 +357,7 @@ static const struct vm_operations_struct bpf_map_default_vmops = {
 	.close		= bpf_map_mmap_close,
 };
 
-static int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)
+static __attribute__((unused)) int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)
 {
 	struct bpf_map *map = filp->private_data;
 	int err;
@@ -414,7 +437,7 @@ int bpf_get_file_flag(int flags)
 /* dst and src must have at least BPF_OBJ_NAME_LEN number of bytes.
  * Return 0 on success and < 0 on error.
  */
-static int bpf_obj_name_cpy(char *dst, const char *src)
+static __attribute__((unused)) int bpf_obj_name_cpy(char *dst, const char *src)
 {
 	const char *end = src + BPF_OBJ_NAME_LEN;
 
@@ -434,9 +457,9 @@ static int bpf_obj_name_cpy(char *dst, const char *src)
 	return 0;
 }
 
-#define BPF_MAP_CREATE_LAST_FIELD btf_value_type_id
+#define BPF_MAP_CREATE_LAST_FIELD inner_map_fd
 /* called via syscall */
-static int map_create(union bpf_attr *attr)
+static __attribute__((unused)) int map_create(union bpf_attr *attr)
 {
 	struct bpf_map *map;
 	int f_flags;
@@ -461,34 +484,7 @@ static int map_create(union bpf_attr *attr)
 
 	atomic_set(&map->refcnt, 1);
 	atomic_set(&map->usercnt, 1);
-	mutex_init(&map->freeze_mutex);
-
-	if (bpf_map_support_seq_show(map) &&
-	    (attr->btf_key_type_id || attr->btf_value_type_id)) {
-		struct btf *btf;
-
-		if (!attr->btf_key_type_id || !attr->btf_value_type_id) {
-			err = -EINVAL;
-			goto free_map_nouncharge;
-		}
-
-		btf = btf_get_by_fd(attr->btf_fd);
-		if (IS_ERR(btf)) {
-			err = PTR_ERR(btf);
-			goto free_map_nouncharge;
-		}
-
-		err = map->ops->map_check_btf(map, btf, attr->btf_key_type_id,
-					      attr->btf_value_type_id);
-		if (err) {
-			btf_put(btf);
-			goto free_map_nouncharge;
-		}
-
-		map->btf = btf;
-		map->btf_key_type_id = attr->btf_key_type_id;
-		map->btf_value_type_id = attr->btf_value_type_id;
-	}
+	mutex_init(&map->freeze_mutex);/* BTF stripped */
 
 	err = security_bpf_map_alloc(map);
 	if (err)
@@ -606,7 +602,7 @@ int __weak bpf_stackmap_copy(struct bpf_map *map, void *key, void *value)
 /* last field in 'union bpf_attr' used by this command */
 #define BPF_MAP_LOOKUP_ELEM_LAST_FIELD value
 
-static int map_lookup_elem(union bpf_attr *attr)
+static __attribute__((unused)) int map_lookup_elem(union bpf_attr *attr)
 {
 	void __user *ukey = u64_to_ptr(attr->key);
 	void __user *uvalue = u64_to_ptr(attr->value);
@@ -693,7 +689,7 @@ err_put:
 
 #define BPF_MAP_UPDATE_ELEM_LAST_FIELD flags
 
-static int map_update_elem(union bpf_attr *attr)
+static __attribute__((unused)) int map_update_elem(union bpf_attr *attr)
 {
 	void __user *ukey = u64_to_ptr(attr->key);
 	void __user *uvalue = u64_to_ptr(attr->value);
@@ -784,7 +780,7 @@ err_put:
 
 #define BPF_MAP_DELETE_ELEM_LAST_FIELD key
 
-static int map_delete_elem(union bpf_attr *attr)
+static __attribute__((unused)) int map_delete_elem(union bpf_attr *attr)
 {
 	void __user *ukey = u64_to_ptr(attr->key);
 	int ufd = attr->map_fd;
@@ -833,7 +829,7 @@ err_put:
 /* last field in 'union bpf_attr' used by this command */
 #define BPF_MAP_GET_NEXT_KEY_LAST_FIELD next_key
 
-static int map_get_next_key(union bpf_attr *attr)
+static __attribute__((unused)) int map_get_next_key(union bpf_attr *attr)
 {
 	void __user *ukey = u64_to_ptr(attr->key);
 	void __user *unext_key = u64_to_ptr(attr->next_key);
@@ -897,7 +893,7 @@ err_put:
 
 static LIST_HEAD(bpf_prog_types);
 
-static int find_prog_type(enum bpf_prog_type type, struct bpf_prog *prog)
+static __attribute__((unused)) int find_prog_type(enum bpf_prog_type type, struct bpf_prog *prog)
 {
 	struct bpf_prog_type_list *tl;
 
@@ -918,7 +914,7 @@ void bpf_register_prog_type(struct bpf_prog_type_list *tl)
 }
 
 /* drop refcnt on maps used by eBPF program and free auxilary data */
-static void free_used_maps(struct bpf_prog_aux *aux)
+static __attribute__((unused)) void free_used_maps(struct bpf_prog_aux *aux)
 {
 	int i;
 
@@ -950,7 +946,7 @@ void __bpf_prog_uncharge(struct user_struct *user, u32 pages)
 		atomic_long_sub(pages, &user->locked_vm);
 }
 
-static int bpf_prog_charge_memlock(struct bpf_prog *prog)
+static __attribute__((unused)) int bpf_prog_charge_memlock(struct bpf_prog *prog)
 {
 	struct user_struct *user = get_current_user();
 	int ret;
@@ -965,7 +961,7 @@ static int bpf_prog_charge_memlock(struct bpf_prog *prog)
 	return 0;
 }
 
-static void bpf_prog_uncharge_memlock(struct bpf_prog *prog)
+static __attribute__((unused)) void bpf_prog_uncharge_memlock(struct bpf_prog *prog)
 {
 	struct user_struct *user = prog->aux->user;
 
@@ -973,7 +969,7 @@ static void bpf_prog_uncharge_memlock(struct bpf_prog *prog)
 	free_uid(user);
 }
 
-static int bpf_prog_alloc_id(struct bpf_prog *prog)
+static __attribute__((unused)) int bpf_prog_alloc_id(struct bpf_prog *prog)
 {
 	int id;
 
@@ -990,7 +986,7 @@ static int bpf_prog_alloc_id(struct bpf_prog *prog)
 	return id > 0 ? 0 : id;
 }
 
-static void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
+static __attribute__((unused)) void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 {
 	/* cBPF to eBPF migrations are currently not in the idr store. */
 	if (!prog->aux->id)
@@ -1009,7 +1005,7 @@ static void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 		__release(&prog_idr_lock);
 }
 
-static void __bpf_prog_put_rcu(struct rcu_head *rcu)
+static __attribute__((unused)) void __bpf_prog_put_rcu(struct rcu_head *rcu)
 {
 	struct bpf_prog_aux *aux = container_of(rcu, struct bpf_prog_aux, rcu);
 
@@ -1019,7 +1015,7 @@ static void __bpf_prog_put_rcu(struct rcu_head *rcu)
 	bpf_prog_free(aux->prog);
 }
 
-static void __bpf_prog_put(struct bpf_prog *prog, bool do_idr_lock)
+static __attribute__((unused)) void __bpf_prog_put(struct bpf_prog *prog, bool do_idr_lock)
 {
 	if (atomic_dec_and_test(&prog->aux->refcnt)) {
 		/* bpf_prog_free_id() must be called first */
@@ -1035,7 +1031,7 @@ void bpf_prog_put(struct bpf_prog *prog)
 }
 EXPORT_SYMBOL_GPL(bpf_prog_put);
 
-static int bpf_prog_release(struct inode *inode, struct file *filp)
+static __attribute__((unused)) int bpf_prog_release(struct inode *inode, struct file *filp)
 {
 	struct bpf_prog *prog = filp->private_data;
 
@@ -1139,7 +1135,7 @@ EXPORT_SYMBOL_GPL(bpf_prog_get_type);
 /* last field in 'union bpf_attr' used by this command */
 #define	BPF_PROG_LOAD_LAST_FIELD line_info_cnt
 
-static int bpf_prog_load(union bpf_attr *attr)
+static __attribute__((unused)) int bpf_prog_load(union bpf_attr *attr)
 {
 	enum bpf_prog_type type = attr->prog_type;
 	struct bpf_prog *prog;
@@ -1252,7 +1248,7 @@ free_prog_nouncharge:
 
 #define BPF_OBJ_LAST_FIELD file_flags
 
-static int bpf_obj_pin(const union bpf_attr *attr)
+static __attribute__((unused)) int bpf_obj_pin(const union bpf_attr *attr)
 {
 	if (CHECK_ATTR(BPF_OBJ) || attr->file_flags != 0)
 		return -EINVAL;
@@ -1260,7 +1256,7 @@ static int bpf_obj_pin(const union bpf_attr *attr)
 	return bpf_obj_pin_user(attr->bpf_fd, u64_to_ptr(attr->pathname));
 }
 
-static int bpf_obj_get(const union bpf_attr *attr)
+static __attribute__((unused)) int bpf_obj_get(const union bpf_attr *attr)
 {
 	if (CHECK_ATTR(BPF_OBJ) || attr->bpf_fd != 0 ||
 	    attr->file_flags & ~BPF_OBJ_FLAG_MASK)
@@ -1277,7 +1273,7 @@ static int bpf_obj_get(const union bpf_attr *attr)
 #define BPF_F_ATTACH_MASK \
 	(BPF_F_ALLOW_OVERRIDE | BPF_F_ALLOW_MULTI)
 
-static int bpf_prog_attach(const union bpf_attr *attr)
+static __attribute__((unused)) int bpf_prog_attach(const union bpf_attr *attr)
 {
 	struct bpf_prog *prog;
 	struct cgroup *cgrp;
@@ -1384,7 +1380,7 @@ static int bpf_prog_attach(const union bpf_attr *attr)
 
 #define BPF_PROG_DETACH_LAST_FIELD attach_type
 
-static int bpf_prog_detach(const union bpf_attr *attr)
+static __attribute__((unused)) int bpf_prog_detach(const union bpf_attr *attr)
 {
 	enum bpf_prog_type ptype;
 	struct bpf_prog *prog;
@@ -1440,7 +1436,7 @@ static int bpf_prog_detach(const union bpf_attr *attr)
 
 #define BPF_PROG_QUERY_LAST_FIELD query.prog_cnt
 
-static int bpf_prog_query(const union bpf_attr *attr,
+static __attribute__((unused)) int bpf_prog_query(const union bpf_attr *attr,
 			  union bpf_attr __user *uattr)
 {
 	struct cgroup *cgrp;
@@ -1482,7 +1478,7 @@ static int bpf_prog_query(const union bpf_attr *attr,
 
 #define BPF_OBJ_GET_NEXT_ID_LAST_FIELD next_id
 
-static int bpf_obj_get_next_id(const union bpf_attr *attr,
+static __attribute__((unused)) int bpf_obj_get_next_id(const union bpf_attr *attr,
 			       union bpf_attr __user *uattr,
 			       struct idr *idr,
 			       spinlock_t *lock)
@@ -1510,7 +1506,7 @@ static int bpf_obj_get_next_id(const union bpf_attr *attr,
 
 #define BPF_PROG_GET_FD_BY_ID_LAST_FIELD prog_id
 
-static int bpf_prog_get_fd_by_id(const union bpf_attr *attr)
+static __attribute__((unused)) int bpf_prog_get_fd_by_id(const union bpf_attr *attr)
 {
 	struct bpf_prog *prog;
 	u32 id = attr->prog_id;
@@ -1542,7 +1538,7 @@ static int bpf_prog_get_fd_by_id(const union bpf_attr *attr)
 
 #define BPF_MAP_GET_FD_BY_ID_LAST_FIELD open_flags
 
-static int bpf_map_get_fd_by_id(const union bpf_attr *attr)
+static __attribute__((unused)) int bpf_map_get_fd_by_id(const union bpf_attr *attr)
 {
 	struct bpf_map *map;
 	u32 id = attr->map_id;
@@ -1578,7 +1574,7 @@ static int bpf_map_get_fd_by_id(const union bpf_attr *attr)
 	return fd;
 }
 
-static int check_uarg_tail_zero(void __user *uaddr,
+static __attribute__((unused)) int check_uarg_tail_zero(void __user *uaddr,
 				size_t expected_size,
 				size_t actual_size)
 {
@@ -1604,7 +1600,7 @@ static int check_uarg_tail_zero(void __user *uaddr,
 	return 0;
 }
 
-static int bpf_prog_get_info_by_fd(struct bpf_prog *prog,
+static __attribute__((unused)) int bpf_prog_get_info_by_fd(struct bpf_prog *prog,
 				   const union bpf_attr *attr,
 				   union bpf_attr __user *uattr)
 {
@@ -1675,7 +1671,7 @@ done:
 	return 0;
 }
 
-static int bpf_map_get_info_by_fd(struct bpf_map *map,
+static __attribute__((unused)) int bpf_map_get_info_by_fd(struct bpf_map *map,
 				  const union bpf_attr *attr,
 				  union bpf_attr __user *uattr)
 {
@@ -1706,7 +1702,7 @@ static int bpf_map_get_info_by_fd(struct bpf_map *map,
 	if (map->btf) {
 		info.btf_id = btf_id(map->btf);
 		info.btf_key_type_id = map->btf_key_type_id;
-		info.btf_value_type_id = map->btf_value_type_id;
+		info.inner_map_fd = map->inner_map_fd;
 	}
 
 	if (copy_to_user(uinfo, &info, info_len) ||
@@ -1716,7 +1712,7 @@ static int bpf_map_get_info_by_fd(struct bpf_map *map,
 	return 0;
 }
 
-static int bpf_btf_get_info_by_fd(struct btf *btf,
+static __attribute__((unused)) int bpf_btf_get_info_by_fd(struct btf *btf,
 				  const union bpf_attr *attr,
 				  union bpf_attr __user *uattr)
 {
@@ -1733,7 +1729,7 @@ static int bpf_btf_get_info_by_fd(struct btf *btf,
 
 #define BPF_OBJ_GET_INFO_BY_FD_LAST_FIELD info.info
 
-static int bpf_obj_get_info_by_fd(const union bpf_attr *attr,
+static __attribute__((unused)) int bpf_obj_get_info_by_fd(const union bpf_attr *attr,
 				  union bpf_attr __user *uattr)
 {
 	int ufd = attr->info.bpf_fd;
@@ -1764,7 +1760,7 @@ static int bpf_obj_get_info_by_fd(const union bpf_attr *attr,
 
 #define BPF_BTF_LOAD_LAST_FIELD btf_log_level
 
-static int bpf_btf_load(const union bpf_attr *attr)
+static __attribute__((unused)) int bpf_btf_load(const union bpf_attr *attr)
 {
 	if (CHECK_ATTR(BPF_BTF_LOAD))
 		return -EINVAL;
@@ -1777,7 +1773,7 @@ static int bpf_btf_load(const union bpf_attr *attr)
 
 #define BPF_BTF_GET_FD_BY_ID_LAST_FIELD btf_id
 
-static int bpf_btf_get_fd_by_id(const union bpf_attr *attr)
+static __attribute__((unused)) int bpf_btf_get_fd_by_id(const union bpf_attr *attr)
 {
 	if (CHECK_ATTR(BPF_BTF_GET_FD_BY_ID))
 		return -EINVAL;

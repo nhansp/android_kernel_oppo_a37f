@@ -218,3 +218,4 @@ static inline int cgroup_bpf_inherit(struct cgroup *cgrp) { return 0; }
 #endif /* CONFIG_CGROUP_BPF */
 
 #endif /* _BPF_CGROUP_H */
+struct cgroup *cgroup_get_from_fd(int fd);
