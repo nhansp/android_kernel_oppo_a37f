@@ -1,6 +1,8 @@
 #ifndef _BPF_CGROUP_H
 #define _BPF_CGROUP_H
 
+#include <linux/jump_label.h>
+
 #include <linux/bpf.h>
 #include <uapi/linux/bpf.h>
 
@@ -11,7 +13,8 @@ struct sk_buff;
 
 #ifdef CONFIG_CGROUP_BPF
 
-#define cgroup_bpf_enabled (0)
+extern struct static_key cgroup_bpf_enabled_key;
+#define cgroup_bpf_enabled static_key_false(&cgroup_bpf_enabled_key)
 
 struct bpf_prog_list {
 	struct list_head node;
@@ -54,7 +57,7 @@ int cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 int cgroup_bpf_query(struct cgroup *cgrp, const union bpf_attr *attr,
 		     union bpf_attr __user *uattr);
 
-int __cgroup_bpf_run_filter(struct sock *sk,
+int __cgroup_bpf_run_filter_skb(struct sock *sk,
 			    struct sk_buff *skb,
 			    enum bpf_attach_type type);
 
@@ -74,12 +77,12 @@ int __cgroup_bpf_run_filter_getsockopt(struct sock *sk, int level,
 				       int __user *optlen, int max_optlen,
 				       int retval);
 
-/* Wrappers for __cgroup_bpf_run_filter() guarded by cgroup_bpf_enabled. */
+/* Wrappers for __cgroup_bpf_run_filter_skb() guarded by cgroup_bpf_enabled. */
 #define BPF_CGROUP_RUN_PROG_INET_INGRESS(sk,skb)			\
 ({									\
 	int __ret = 0;							\
 	if (cgroup_bpf_enabled)						\
-		__ret = __cgroup_bpf_run_filter(sk, skb,		\
+		__ret = __cgroup_bpf_run_filter_skb(sk, skb,		\
 						BPF_CGROUP_INET_INGRESS); \
 									\
 	__ret;								\
@@ -90,7 +93,7 @@ int __cgroup_bpf_run_filter_getsockopt(struct sock *sk, int level,
 	int __ret = 0;							\
 	if (cgroup_bpf_enabled && sock && sock == skb->sk) {		\
 		if (sk_fullsock(sock))					\
-			__ret = __cgroup_bpf_run_filter(sock, skb,	\
+			__ret = __cgroup_bpf_run_filter_skb(sock, skb,	\
 						BPF_CGROUP_INET_EGRESS); \
 	}								\
 	__ret;								\

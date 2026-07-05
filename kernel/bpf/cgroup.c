@@ -5,6 +5,7 @@
 #include <linux/slab.h>
 #include <linux/cgroup.h>
 #include <linux/filter.h>
+#include <linux/jump_label.h>
 
 struct cgroup_bpf_prog {
 	struct bpf_prog *prog;
@@ -14,6 +15,9 @@ struct cgroup_bpf_prog {
 
 static LIST_HEAD(cgroup_bpf_progs);
 static DEFINE_SPINLOCK(cgroup_bpf_lock);
+
+struct static_key cgroup_bpf_enabled_key = STATIC_KEY_INIT_FALSE;
+EXPORT_SYMBOL(cgroup_bpf_enabled_key);
 
 int __cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
 			enum bpf_attach_type type, u32 flags)
@@ -39,6 +43,7 @@ int __cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
 		spin_unlock(&cgroup_bpf_lock);
 		synchronize_rcu();
 		kfree(old);
+		static_key_slow_dec(&cgroup_bpf_enabled_key);
 	}
 
 	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
@@ -52,6 +57,7 @@ int __cgroup_bpf_attach(struct cgroup *cgrp, struct bpf_prog *prog,
 	spin_lock(&cgroup_bpf_lock);
 	list_add_rcu(&entry->node, &cgroup_bpf_progs);
 	spin_unlock(&cgroup_bpf_lock);
+	static_key_slow_inc(&cgroup_bpf_enabled_key);
 	return 0;
 }
 
@@ -68,6 +74,7 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 			synchronize_rcu();
 			bpf_prog_put(entry->prog);
 			kfree(entry);
+			static_key_slow_dec(&cgroup_bpf_enabled_key);
 			return 0;
 		}
 	}

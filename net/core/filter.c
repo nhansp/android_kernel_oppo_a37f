@@ -37,6 +37,8 @@
 #include <asm/uaccess.h>
 #include <asm/unaligned.h>
 #include <linux/filter.h>
+#include <linux/bpf.h>
+#include <linux/highuid.h>
 #include <linux/ratelimit.h>
 #include <linux/seccomp.h>
 #include <linux/if_vlan.h>
@@ -887,3 +889,217 @@ out:
 	release_sock(sk);
 	return ret;
 }
+
+/* ------------------------------------------------------------------------
+ * eBPF CGROUP_SKB program type — Android NetBpfLoad traffic accounting.
+ * Additive backport onto 3.10: the classic cBPF sk_run_filter path above is
+ * untouched (no net-stack wall). Minimal by design — only the read-only
+ * scalar __sk_buff fields netd's accounting programs need are exposed;
+ * packet-access / bitfield / cb / sk fields are rejected by the verifier.
+ * ------------------------------------------------------------------------ */
+
+BPF_CALL_4(bpf_skb_load_bytes, const struct sk_buff *, skb, u32, offset,
+	   void *, to, u32, len)
+{
+	void *ptr;
+
+	if (unlikely(offset > 0xffff))
+		goto err_clear;
+	ptr = skb_header_pointer(skb, offset, len, to);
+	if (unlikely(!ptr))
+		goto err_clear;
+	if (ptr != to)
+		memcpy(to, ptr, len);
+	return 0;
+err_clear:
+	memset(to, 0, len);
+	return -EFAULT;
+}
+
+static const struct bpf_func_proto bpf_skb_load_bytes_proto = {
+	.func		= bpf_skb_load_bytes,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_ANYTHING,
+	.arg3_type	= ARG_PTR_TO_UNINIT_MEM,
+	.arg4_type	= ARG_CONST_SIZE,
+};
+
+/* 3.10 struct sock has no sk_cookie (4.12+); adding one would break the
+ * frozen sock ABI, so return a per-socket opaque id from the sk pointer.
+ * Stable for the socket's lifetime; sufficient for netd's tag/stats maps. */
+BPF_CALL_1(bpf_get_socket_cookie, struct sk_buff *, skb)
+{
+	return skb->sk ? (u64)(unsigned long)skb->sk : 0;
+}
+
+static const struct bpf_func_proto bpf_get_socket_cookie_proto = {
+	.func		= bpf_get_socket_cookie,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+};
+
+/* 3.10 struct sock has no sk_uid (4.6+); derive the owning uid the
+ * 3.10-native way via the socket inode (sock_i_uid), ABI-preserving. */
+BPF_CALL_1(bpf_get_socket_uid, struct sk_buff *, skb)
+{
+	struct sock *sk = skb->sk;
+
+	if (!sk)
+		return overflowuid;
+	return from_kuid_munged(&init_user_ns, sock_i_uid(sk));
+}
+
+static const struct bpf_func_proto bpf_get_socket_uid_proto = {
+	.func		= bpf_get_socket_uid,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+};
+
+static const struct bpf_func_proto *
+cg_skb_func_proto(enum bpf_func_id func_id)
+{
+	switch (func_id) {
+	case BPF_FUNC_skb_load_bytes:
+		return &bpf_skb_load_bytes_proto;
+	case BPF_FUNC_get_socket_cookie:
+		return &bpf_get_socket_cookie_proto;
+	case BPF_FUNC_get_socket_uid:
+		return &bpf_get_socket_uid_proto;
+	case BPF_FUNC_map_lookup_elem:
+		return &bpf_map_lookup_elem_proto;
+	case BPF_FUNC_map_update_elem:
+		return &bpf_map_update_elem_proto;
+	case BPF_FUNC_map_delete_elem:
+		return &bpf_map_delete_elem_proto;
+	case BPF_FUNC_get_prandom_u32:
+		return &bpf_get_prandom_u32_proto;
+	case BPF_FUNC_ktime_get_ns:
+		return &bpf_ktime_get_ns_proto;
+	case BPF_FUNC_get_current_uid_gid:
+		return &bpf_get_current_uid_gid_proto;
+	case BPF_FUNC_trace_printk:
+		if (capable(CAP_SYS_ADMIN))
+			return bpf_get_trace_printk_proto();
+		return NULL;
+	default:
+		return NULL;
+	}
+}
+
+static bool cg_skb_is_valid_access(int off, int size,
+				   enum bpf_access_type type,
+				   enum bpf_reg_type *reg_type)
+{
+	if (off < 0 || off >= sizeof(struct __sk_buff))
+		return false;
+	if (size != sizeof(__u32))
+		return false;
+	if (off % size != 0)
+		return false;
+
+	switch (off) {
+	case offsetof(struct __sk_buff, len):
+	case offsetof(struct __sk_buff, protocol):
+	case offsetof(struct __sk_buff, priority):
+	case offsetof(struct __sk_buff, ingress_ifindex):
+	case offsetof(struct __sk_buff, ifindex):
+	case offsetof(struct __sk_buff, hash):
+	case offsetof(struct __sk_buff, mark):
+		break;
+	default:
+		return false;
+	}
+
+	if (type == BPF_WRITE) {
+		switch (off) {
+		case offsetof(struct __sk_buff, mark):
+		case offsetof(struct __sk_buff, priority):
+			break;
+		default:
+			return false;
+		}
+	}
+	return true;
+}
+
+static u32 cg_skb_convert_ctx_access(enum bpf_access_type type, int dst_reg,
+				     int src_reg, int ctx_off,
+				     struct bpf_insn *insn_buf,
+				     struct bpf_prog *prog)
+{
+	struct bpf_insn *insn = insn_buf;
+
+	switch (ctx_off) {
+	case offsetof(struct __sk_buff, len):
+		BUILD_BUG_ON(FIELD_SIZEOF(struct sk_buff, len) != 4);
+		*insn++ = BPF_LDX_MEM(BPF_W, dst_reg, src_reg,
+				      offsetof(struct sk_buff, len));
+		break;
+	case offsetof(struct __sk_buff, protocol):
+		BUILD_BUG_ON(FIELD_SIZEOF(struct sk_buff, protocol) != 2);
+		*insn++ = BPF_LDX_MEM(BPF_H, dst_reg, src_reg,
+				      offsetof(struct sk_buff, protocol));
+		break;
+	case offsetof(struct __sk_buff, priority):
+		BUILD_BUG_ON(FIELD_SIZEOF(struct sk_buff, priority) != 4);
+		if (type == BPF_WRITE)
+			*insn++ = BPF_STX_MEM(BPF_W, dst_reg, src_reg,
+					      offsetof(struct sk_buff, priority));
+		else
+			*insn++ = BPF_LDX_MEM(BPF_W, dst_reg, src_reg,
+					      offsetof(struct sk_buff, priority));
+		break;
+	case offsetof(struct __sk_buff, ingress_ifindex):
+		BUILD_BUG_ON(FIELD_SIZEOF(struct sk_buff, skb_iif) != 4);
+		*insn++ = BPF_LDX_MEM(BPF_W, dst_reg, src_reg,
+				      offsetof(struct sk_buff, skb_iif));
+		break;
+	case offsetof(struct __sk_buff, ifindex):
+		BUILD_BUG_ON(FIELD_SIZEOF(struct net_device, ifindex) != 4);
+		*insn++ = BPF_LDX_MEM(BPF_FIELD_SIZEOF(struct sk_buff, dev),
+				      dst_reg, src_reg,
+				      offsetof(struct sk_buff, dev));
+		*insn++ = BPF_JMP_IMM(BPF_JEQ, dst_reg, 0, 1);
+		*insn++ = BPF_LDX_MEM(BPF_W, dst_reg, dst_reg,
+				      offsetof(struct net_device, ifindex));
+		break;
+	case offsetof(struct __sk_buff, hash):
+		BUILD_BUG_ON(FIELD_SIZEOF(struct sk_buff, rxhash) != 4);
+		*insn++ = BPF_LDX_MEM(BPF_W, dst_reg, src_reg,
+				      offsetof(struct sk_buff, rxhash));
+		break;
+	case offsetof(struct __sk_buff, mark):
+		BUILD_BUG_ON(FIELD_SIZEOF(struct sk_buff, mark) != 4);
+		if (type == BPF_WRITE)
+			*insn++ = BPF_STX_MEM(BPF_W, dst_reg, src_reg,
+					      offsetof(struct sk_buff, mark));
+		else
+			*insn++ = BPF_LDX_MEM(BPF_W, dst_reg, src_reg,
+					      offsetof(struct sk_buff, mark));
+		break;
+	}
+
+	return insn - insn_buf;
+}
+
+static const struct bpf_verifier_ops cg_skb_ops = {
+	.get_func_proto		= cg_skb_func_proto,
+	.is_valid_access	= cg_skb_is_valid_access,
+	.convert_ctx_access	= cg_skb_convert_ctx_access,
+};
+
+static struct bpf_prog_type_list cg_skb_type __read_mostly = {
+	.ops	= &cg_skb_ops,
+	.type	= BPF_PROG_TYPE_CGROUP_SKB,
+};
+
+static int __init register_cg_skb_ops(void)
+{
+	bpf_register_prog_type(&cg_skb_type);
+	return 0;
+}
+late_initcall(register_cg_skb_ops);
