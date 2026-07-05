@@ -54,6 +54,8 @@ enum {
 	BPF_REG_8,
 	BPF_REG_9,
 	BPF_REG_10,
+	BPF_REG_FP = 10,
+	BPF_REG_AX = 11,
 	__MAX_BPF_REG,
 };
 
@@ -1122,3 +1124,4 @@ struct bpf_tcp_sock {
 };
 
 #endif /* _UAPI__LINUX_BPF_H__ */
+#define BPF_TAIL_CALL 12

@@ -1,3 +1,4 @@
+#include <linux/seq_file.h>
 /*
  * Minimal file system backend for holding eBPF maps and programs,
  * used by bpf(2) object pinning.

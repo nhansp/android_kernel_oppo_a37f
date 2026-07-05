@@ -1,7 +1,12 @@
 obj-$(CONFIG_BPF) += core.o
 obj-$(CONFIG_CGROUP_BPF) += cgroup.o
 obj-$(CONFIG_BPF_SYSCALL) += syscall.o arraymap.o hashtab.o
+obj-$(CONFIG_BPF_SYSCALL) += verifier.o inode.o
 CFLAGS_syscall.o := -Wno-declaration-after-statement
+obj-$(CONFIG_BPF_SYSCALL) += verifier.o inode.o
 obj-$(CONFIG_BPF_SYSCALL) += bpf_lru_list.o
 obj-$(CONFIG_BPF_SYSCALL) += percpu_freelist.o
 obj-$(CONFIG_BPF_SYSCALL) += map_in_map.o
+CFLAGS_verifier.o := -Wno-declaration-after-statement -Wno-maybe-uninitialized
+CFLAGS_inode.o := -Wno-declaration-after-statement
+subdir-ccflags-y := -w

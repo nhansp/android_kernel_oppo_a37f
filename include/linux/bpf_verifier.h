@@ -1,3 +1,4 @@
+#define MAX_BPF_STACK 512
 /* Copyright (c) 2011-2014 PLUMgrid, http://plumgrid.com
  *
  * This program is free software; you can redistribute it and/or

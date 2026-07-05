@@ -149,16 +149,16 @@ enum {
 };
 
 
-/* eBPF additions - additive, coexist with classic cBPF above */
 
 #include <uapi/linux/bpf.h>
+#include <linux/bpf_verifier.h>
 
 struct bpf_prog_aux {
 	atomic_t refcnt;
 	u32 max_ctx_offset;
 	struct rcu_head rcu;
 	u32 id;
-	const void *ops;
+	struct bpf_verifier_ops *ops;
 	u32 used_map_cnt;
 	struct bpf_map **used_maps;
 	struct user_struct *user;
@@ -176,6 +176,7 @@ struct bpf_prog {
 	struct bpf_insn		*insnsi;
 	struct bpf_prog		*orig_prog;
 	bool			gpl_compatible;
+	bool			dst_needed;
 	struct bpf_prog_aux	*aux;
 	unsigned int		(*bpf_func)(const void *, const struct bpf_insn *);
 };
@@ -193,4 +194,8 @@ static inline unsigned int bpf_prog_size(unsigned int proglen) {
 	return max_t(unsigned int, sizeof(struct bpf_prog), proglen * sizeof(struct bpf_insn));
 }
 
+
+extern u64 __bpf_call_base;
+
 #endif /* __LINUX_FILTER_H__ */
+#define BPF_JMP_IMM(op, dst, src, imm)  ((struct bpf_insn){ .code = BPF_JMP|BPF_OP(op)|BPF_K, .dst_reg = (dst), .src_reg = (src), .off = 0, .imm = (imm) })

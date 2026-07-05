@@ -11,3 +11,4 @@ EXPORT_SYMBOL_GPL(__bpf_prog_run);
 
 void bpf_prog_kallsyms_add(struct bpf_prog *prog) {}
 void bpf_prog_kallsyms_del(struct bpf_prog *prog) {}
+u64 __bpf_call_base;
