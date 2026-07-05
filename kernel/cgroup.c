@@ -4733,6 +4733,9 @@ int __init cgroup_init(void)
 
 	proc_create("cgroups", 0, NULL, &proc_cgroupstats_operations);
 
+	/* Expose the root cgroup so the BPF cgroup-attach path (cgroup_get_from_fd) works. */
+	cgrp_dfl_root = &rootnode.top_cgroup;
+
 out:
 	if (err)
 		bdi_destroy(&cgroup_backing_dev_info);
@@ -5534,8 +5537,6 @@ struct cgroup_subsys debug_subsys = {
 	.base_cftypes = debug_files,
 };
 #endif /* CONFIG_CGROUP_DEBUG */
-struct cgroup *cgrp_dfl_root;
-
 
 /* Minimal cgroup v2 support for BPF */
 struct cgroup *cgrp_dfl_root;
