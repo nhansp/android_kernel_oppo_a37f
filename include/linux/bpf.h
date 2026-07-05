@@ -507,3 +507,5 @@ void bpf_prog_kallsyms_add(struct bpf_prog *prog);
 void bpf_prog_kallsyms_del(struct bpf_prog *prog);
 #endif
 struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *prog, int *err);
+struct bpf_prog *bpf_patch_insn_single(struct bpf_prog *prog, u32 off,
+				       const struct bpf_insn *patch, u32 len);

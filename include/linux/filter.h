@@ -174,19 +174,23 @@ struct bpf_prog {
 	u16			jited:1;
 	u32			len;
 	enum bpf_prog_type	type;
-	struct bpf_insn		*insns;
-	struct bpf_insn		*insnsi;
 	struct bpf_prog		*orig_prog;
 	bool			gpl_compatible;
 	bool			dst_needed;
 	struct bpf_prog_aux	*aux;
 	unsigned int		(*bpf_func)(const void *, const struct bpf_insn *);
+	/* Instructions for interpreter, allocated inline by bpf_prog_alloc(). */
+	union {
+		struct sock_filter	insns[0];
+		struct bpf_insn		insnsi[0];
+	};
 };
 
 #define MAX_BPF_STACK		512
 
 static inline unsigned int bpf_prog_size(unsigned int proglen) {
-	return max_t(unsigned int, sizeof(struct bpf_prog), proglen * sizeof(struct bpf_insn));
+	return max_t(unsigned int, sizeof(struct bpf_prog),
+		     offsetof(struct bpf_prog, insnsi[proglen]));
 }
 
 
