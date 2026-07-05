@@ -49,7 +49,7 @@ static LIST_HEAD(bpf_map_types);
 
 static struct bpf_map *find_and_alloc_map(union bpf_attr *attr)
 {
-	const struct bpf_map_ops *ops;
+//	const struct bpf_map_ops *ops __maybe_unused;
 	struct bpf_map_type_list *tl;
 	struct bpf_map *map;
 	int err;
@@ -1194,7 +1194,7 @@ static int bpf_prog_load(union bpf_attr *attr)
 		return -EPERM;
 
 	/* plain bpf_prog allocation */
-	prog = bpf_prog_alloc(bpf_prog_size(attr->insn_cnt), GFP_USER);
+	prog = (struct bpf_prog *)bpf_prog_alloc(bpf_prog_size(attr->insn_cnt), GFP_USER);
 	if (!prog)
 		return -ENOMEM;
 

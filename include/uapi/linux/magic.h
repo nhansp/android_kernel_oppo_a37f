@@ -77,3 +77,4 @@
 
 #endif /* __LINUX_MAGIC_H__ */
 #define CGROUP2_SUPER_MAGIC 0x63677270
+#define BPF_FS_MAGIC 0xcafe4a11
