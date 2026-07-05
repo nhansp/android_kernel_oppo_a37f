@@ -148,7 +148,30 @@ enum {
 	BPF_S_ANC_PAY_OFFSET,
 };
 
+
+/* eBPF additions - additive, coexist with classic cBPF */
 #include <uapi/linux/bpf.h>
-#include <linux/bpf.h>
+
+struct bpf_prog_aux {
+	atomic_t refcnt;
+	u32 max_ctx_offset;
+};
+
+struct bpf_prog {
+	u16			pages;
+	u16			jited:1;
+	u32			len;
+	struct bpf_prog_aux	*aux;
+	unsigned int		(*bpf_func)(const void *, const struct bpf_insn *);
+};
+
+#define BPF_CALL_0(fn)		((void *)(fn))
+#define BPF_CALL_1(fn)		((void *)(fn))
+#define BPF_CALL_2(fn)		((void *)(fn))
+#define BPF_CALL_3(fn)		((void *)(fn))
+#define BPF_CALL_4(fn)		((void *)(fn))
+#define BPF_CALL_5(fn)		((void *)(fn))
+#define BPF_PROG_RUN(prog, ctx)	({ 0; })
+#define MAX_BPF_STACK		512
+
 #endif /* __LINUX_FILTER_H__ */
-#define BPF_PROG_RUN(prog, ctx) ({ 0; })

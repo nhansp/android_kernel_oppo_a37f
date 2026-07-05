@@ -8,6 +8,7 @@
 #define _LINUX_BPF_H 1
 
 #include <uapi/linux/bpf.h>
+#include <linux/filter.h>
 
 #include <linux/workqueue.h>
 #include <linux/file.h>
@@ -53,7 +54,6 @@ struct bpf_map_ops {
 };
 
 struct bpf_map {
-	atomic_t refcnt;
 	enum bpf_map_type map_type;
 	u32 key_size;
 	u32 value_size;
@@ -201,7 +201,7 @@ enum bpf_reg_type {
 	PTR_TO_MEM_OR_NULL,	 /* reg points to valid memory region or NULL */
 };
 
-struct bpf_prog;
+// struct bpf_prog defined below
 
 struct bpf_verifier_ops {
 	/* return eBPF function prototype for verification */
@@ -225,28 +225,6 @@ struct bpf_prog_type_list {
 	enum bpf_prog_type type;
 };
 
-struct bpf_prog_aux {
-	atomic_t refcnt;
-	u32 used_map_cnt;
-	u32 max_ctx_offset;
-        u32 id;
-	struct latch_tree_node ksym_tnode;
-	struct list_head ksym_lnode;
-	const struct bpf_verifier_ops *ops;
-	struct bpf_map **used_maps;
-	struct bpf_prog *prog;
-	struct user_struct *user;
-	u64 load_time; /* ns since boottime */
-	char name[BPF_OBJ_NAME_LEN];
-
-#ifdef CONFIG_SECURITY
-	void *security;
-#endif
-	union {
-		struct work_struct work;
-		struct rcu_head	rcu;
-	};
-};
 
 struct bpf_array {
 	struct bpf_map map;

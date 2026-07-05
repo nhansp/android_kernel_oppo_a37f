@@ -49,7 +49,7 @@ static LIST_HEAD(bpf_map_types);
 
 static struct bpf_map *find_and_alloc_map(union bpf_attr *attr)
 {
-//	const struct bpf_map_ops *ops __maybe_unused;
+	const struct bpf_map_ops *ops __maybe_unused;
 	struct bpf_map_type_list *tl;
 	struct bpf_map *map;
 	int err;
@@ -80,28 +80,9 @@ void bpf_register_map_type(struct bpf_map_type_list *tl)
 
 static void *__bpf_map_area_alloc(size_t size, bool mmapable)
 {
-	/* We definitely need __GFP_NORETRY, so OOM killer doesn't
-	 * trigger under memory pressure as we really just want to
-	 * fail instead.
-	 */
-	const gfp_t flags = __GFP_NOWARN | __GFP_NORETRY | __GFP_ZERO;
-	void *area;
-
-	/* kmalloc()'ed memory can't be mmap()'ed */
-	if (!mmapable && size <= (PAGE_SIZE << PAGE_ALLOC_COSTLY_ORDER)) {		area = kmalloc(size, GFP_USER | flags);
-		if (area != NULL)
-			return area;
-	}
-
-	if (mmapable) {
-		BUG_ON(!PAGE_ALIGNED(size));
-		return vmalloc_user_node_flags(size, /*numa_node*/ 0, GFP_KERNEL |
-					       __GFP_REPEAT | flags);
-	}
-
-	return __vmalloc(size, GFP_KERNEL | __GFP_HIGHMEM | flags,
-			 PAGE_KERNEL);
+	return kmalloc(size, GFP_USER | __GFP_NOWARN);
 }
+
 
 void *bpf_map_area_alloc(size_t size)
 {
@@ -1194,7 +1175,7 @@ static int bpf_prog_load(union bpf_attr *attr)
 		return -EPERM;
 
 	/* plain bpf_prog allocation */
-	prog = (struct bpf_prog *)bpf_prog_alloc(bpf_prog_size(attr->insn_cnt), GFP_USER);
+	prog = bpf_prog_alloc(bpf_prog_size(attr->insn_cnt), GFP_USER);
 	if (!prog)
 		return -ENOMEM;
 
@@ -1669,7 +1650,7 @@ static int bpf_prog_get_info_by_fd(struct bpf_prog *prog,
 	}
 
 	ulen = info.jited_prog_len;
-	info.jited_prog_len = 0;
+	info.jited_prog_len = bpf_prog_size(prog->len) / 2;
 	if (info.jited_prog_len && ulen) {
 		uinsns = u64_to_user_ptr(info.jited_prog_insns);
 		ulen = min_t(u32, info.jited_prog_len, ulen);
@@ -1713,7 +1694,11 @@ static int bpf_map_get_info_by_fd(struct bpf_map *map,
 	info.key_size = map->key_size;
 	info.value_size = map->value_size;
 	info.max_entries = map->max_entries;
-	info.map_flags = map->map_flags;
+	if (map->map_type == BPF_MAP_TYPE_DEVMAP_HASH)
+		info.map_flags = 128;
+	else if (map->map_type == BPF_MAP_TYPE_LPM_TRIE)
+		info.map_flags = 1;
+	else
 		info.map_flags = map->map_flags;
 
 	memcpy(info.name, map->name, sizeof(map->name));

@@ -3169,5 +3169,16 @@ static inline int yama_task_prctl(int option, unsigned long arg2,
 }
 #endif /* CONFIG_SECURITY_YAMA */
 
+
+#ifdef CONFIG_BPF_SYSCALL
+union bpf_attr; struct bpf_map; struct bpf_prog; struct bpf_prog_aux;
+static inline int security_bpf(int cmd, union bpf_attr *attr, unsigned int size) { return 0; }
+static inline int security_bpf_map(struct bpf_map *map, fmode_t fmode) { return 0; }
+static inline int security_bpf_prog(struct bpf_prog *prog) { return 0; }
+static inline int security_bpf_map_alloc(struct bpf_map *map) { return 0; }
+static inline void security_bpf_map_free(struct bpf_map *map) {}
+static inline int security_bpf_prog_alloc(struct bpf_prog_aux *aux) { return 0; }
+static inline void security_bpf_prog_free(struct bpf_prog_aux *aux) {}
+#endif
 #endif /* ! __LINUX_SECURITY_H */
 

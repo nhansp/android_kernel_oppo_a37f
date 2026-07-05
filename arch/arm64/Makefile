@@ -96,4 +96,3 @@ define archhelp
   echo  '                  (distribution) /sbin/installkernel or'
   echo  '                  install to $$(INSTALL_PATH) and run lilo'
 endef
-core-$(CONFIG_BPF_JIT) += arch/arm64/net/
