@@ -119,3 +119,13 @@ static inline void hlist_nulls_add_head_rcu(struct hlist_nulls_node *n,
 
 #endif
 #endif
+
+#define hlist_nulls_for_each_entry_safe(tpos, pos, head, member) \
+	for (pos = rcu_dereference_raw(hlist_nulls_first_rcu(head)); \
+	     (!is_a_nulls(pos)) && \
+	     ({ tpos = hlist_nulls_entry(pos, typeof(*tpos), member); 1; }); \
+	     pos = rcu_dereference_raw(hlist_nulls_next_rcu(pos)))
+
+#define hlist_nulls_entry_safe(ptr, type, member) \
+	({ typeof(ptr) ____ptr = (ptr); \
+	   !is_a_nulls(____ptr) ? hlist_nulls_entry(____ptr, type, member) : NULL; })
