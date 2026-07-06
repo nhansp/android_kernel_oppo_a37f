@@ -85,18 +85,19 @@ int __cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 static int cgroup_bpf_run(int type, void *ctx)
 {
 	struct cgroup_bpf_prog *entry;
-	int ret = 0;
+	int ret = 1;			/* default allow (no matching prog) */
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(entry, &cgroup_bpf_progs, node) {
 		if (entry->type == type && entry->prog) {
 			ret = BPF_PROG_RUN(entry->prog, ctx);
-			if (ret)
+			if (ret == 0)		/* a prog denied -> stop */
 				break;
 		}
 	}
 	rcu_read_unlock();
-	return ret;
+	/* cgroup_skb: prog 1=allow, 0=deny -> caller wants 0=allow, -EPERM=deny */
+	return ret == 1 ? 0 : -EPERM;
 }
 
 int __cgroup_bpf_run_filter_skb(struct sock *sk, struct sk_buff *skb,
