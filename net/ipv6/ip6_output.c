@@ -49,6 +49,7 @@
 #include <net/ndisc.h>
 #include <net/protocol.h>
 #include <net/ip6_route.h>
+#include <linux/bpf-cgroup.h>
 #include <net/addrconf.h>
 #include <net/rawv6.h>
 #include <net/icmp.h>
@@ -149,6 +150,14 @@ static int ip6_finish_output2(struct sk_buff *skb)
 
 static int ip6_finish_output(struct sk_buff *skb)
 {
+	int err;
+
+	err = BPF_CGROUP_RUN_PROG_INET_EGRESS(skb->sk, skb);
+	if (err) {
+		kfree_skb(skb);
+		return err;
+	}
+
 	if ((skb->len > ip6_skb_dst_mtu(skb) && !skb_is_gso(skb)) ||
 	    dst_allfrag(skb_dst(skb)) ||
 	    (IP6CB(skb)->frag_max_size && skb->len > IP6CB(skb)->frag_max_size))
