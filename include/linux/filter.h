@@ -5,6 +5,7 @@
 #define __LINUX_FILTER_H__
 
 #include <linux/atomic.h>
+#include <linux/workqueue.h>
 #include <linux/compat.h>
 #include <uapi/linux/filter.h>
 
