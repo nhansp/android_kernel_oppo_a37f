@@ -40,6 +40,7 @@
 #include <linux/security.h>
 
 #include "binder.h"
+#include "binder_internal.h"
 #include "binder_trace.h"
 
 static DEFINE_MUTEX(binder_main_lock);
@@ -111,7 +112,7 @@ module_param_named(debug_mask, binder_debug_mask, uint, S_IWUSR | S_IRUGO);
 static bool binder_debug_no_lock;
 module_param_named(proc_no_lock, binder_debug_no_lock, bool, S_IWUSR | S_IRUGO);
 
-static char *binder_devices_param = CONFIG_ANDROID_BINDER_DEVICES;
+char *binder_devices_param = CONFIG_ANDROID_BINDER_DEVICES;
 module_param_named(devices, binder_devices_param, charp, S_IRUGO);
 
 static DECLARE_WAIT_QUEUE_HEAD(binder_user_error_wait);
@@ -220,18 +221,6 @@ static struct binder_transaction_log_entry *binder_transaction_log_add(
 	}
 	return e;
 }
-
-struct binder_context {
-	struct binder_node *binder_context_mgr_node;
-	kuid_t binder_context_mgr_uid;
-	const char *name;
-};
-
-struct binder_device {
-	struct hlist_node hlist;
-	struct miscdevice miscdev;
-	struct binder_context context;
-};
 
 struct binder_work {
 	struct list_head entry;
@@ -3467,8 +3456,13 @@ static int binder_open(struct inode *nodp, struct file *filp)
 	INIT_LIST_HEAD(&proc->todo);
 	init_waitqueue_head(&proc->wait);
 	proc->default_priority = task_nice(current);
-	binder_dev = container_of(filp->private_data, struct binder_device,
-				  miscdev);
+#ifdef CONFIG_ANDROID_BINDERFS
+	if (is_binderfs_device(nodp))
+		binder_dev = nodp->i_private;
+	else
+#endif
+		binder_dev = container_of(filp->private_data,
+					  struct binder_device, miscdev);
 	proc->context = &binder_dev->context;
 
 	binder_lock(__func__);
@@ -4167,7 +4161,7 @@ static int binder_transaction_log_show(struct seq_file *m, void *unused)
 	return 0;
 }
 
-static const struct file_operations binder_fops = {
+const struct file_operations binder_fops = {
 	.owner = THIS_MODULE,
 	.poll = binder_poll,
 	.unlocked_ioctl = binder_ioctl,
@@ -4265,11 +4259,18 @@ static int __init binder_init(void)
 	}
 	strcpy(device_names, binder_devices_param);
 
+#ifdef CONFIG_ANDROID_BINDERFS
+	/* Devices are provisioned dynamically via binderfs (mount -t binder). */
+	ret = init_binderfs();
+	if (ret)
+		goto err_init_binder_device_failed;
+#else
 	while ((device_name = strsep(&device_names, ","))) {
 		ret = init_binder_device(device_name);
 		if (ret)
 			goto err_init_binder_device_failed;
 	}
+#endif
 
 	return ret;
 

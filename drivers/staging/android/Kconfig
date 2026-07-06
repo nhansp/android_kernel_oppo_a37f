@@ -158,3 +158,12 @@ source "drivers/staging/android/fiq_debugger/Kconfig"
 endif # if ANDROID
 
 endmenu
+
+config ANDROID_BINDERFS
+	bool "Android Binderfs filesystem"
+	depends on ANDROID_BINDER_IPC
+	default n
+	help
+	  Binderfs is a pseudo-filesystem for the Android binder IPC driver
+	  which can be mounted per-ipc-namespace. Android 10+ init mounts it
+	  at /dev/binderfs and provisions binder/hwbinder/vndbinder there.
