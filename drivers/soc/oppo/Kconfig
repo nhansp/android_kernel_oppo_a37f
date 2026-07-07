@@ -1,0 +1,14 @@
+# OPPO SoC drivers, ported from the stock OPPO A37f (msm8916) 3.10 kernel.
+config OPPO_ARCH_FILE
+	bool "Build the drivers/soc/oppo directory"
+	help
+	  Say Y to build in the OPPO soc/oppo drivers directory.
+
+config OPPO_COMMON_SOFT
+	bool "OPPO common software (project version from shared memory)"
+	select OPPO_ARCH_FILE
+	help
+	  Read the OPPO project/PCB/operator version from SMEM (SMEM_ID_VENDOR1),
+	  exposing is_project()/get_PCB_Version() and /proc/oppoVersion/*.
+
+source "drivers/soc/oppo/oppo_project/Kconfig"
