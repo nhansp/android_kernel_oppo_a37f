@@ -12,3 +12,4 @@ CFLAGS_inode.o := -Wno-declaration-after-statement
 subdir-ccflags-y := -w
 obj-$(CONFIG_BPF_SYSCALL) += helpers.o
 obj-$(CONFIG_BPF_SYSCALL) += btf_stub.o
+obj-$(CONFIG_BPF_SYSCALL) += ringbuf.o
