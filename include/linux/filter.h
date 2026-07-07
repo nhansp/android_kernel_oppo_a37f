@@ -215,10 +215,21 @@ void bpf_jit_free(struct bpf_prog *fp);
 void bpf_prog_kallsyms_add(struct bpf_prog *fp);
 void bpf_prog_kallsyms_del(struct bpf_prog *fp);
 
-/* No set_memory_ro/x on this arm64 3.10 tree: JIT images stay RW+X. */
+/* W^X for JIT images: bpf_jit_binary_alloc uses module_alloc, whose pages live
+ * in [MODULES_VADDR, MODULES_END) -- the range arm64 change_memory_common
+ * accepts. set_memory_ro clears write but keeps exec => RO+X. The bpf_prog
+ * struct is plain vmalloc (outside the modules range) so bpf_prog_lock_ro must
+ * stay a no-op. */
+#include <asm/cacheflush.h>
 static inline void bpf_prog_lock_ro(struct bpf_prog *fp) { }
-static inline void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr) { }
-static inline void bpf_jit_binary_unlock_ro(struct bpf_binary_header *hdr) { }
+static inline void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr)
+{
+	set_memory_ro((unsigned long)hdr, hdr->pages);
+}
+static inline void bpf_jit_binary_unlock_ro(struct bpf_binary_header *hdr)
+{
+	set_memory_rw((unsigned long)hdr, hdr->pages);
+}
 static inline void bpf_jit_set_header_magic(struct bpf_binary_header *hdr) { }
 
 static inline struct bpf_binary_header *
