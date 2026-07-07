@@ -1124,4 +1124,3 @@ struct bpf_tcp_sock {
 };
 
 #endif /* _UAPI__LINUX_BPF_H__ */
-#define BPF_TAIL_CALL 12
