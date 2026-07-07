@@ -1079,9 +1079,19 @@ static bool cg_skb_is_valid_access(int off, int size,
 {
 	if (off < 0 || off >= sizeof(struct __sk_buff))
 		return false;
-	if (size != sizeof(__u32))
-		return false;
 	if (off % size != 0)
+		return false;
+
+	/* struct __sk_buff, sk: a read-only borrowed socket pointer. */
+	if (off == offsetof(struct __sk_buff, sk)) {
+		if (type == BPF_WRITE || size != sizeof(__u64))
+			return false;
+		*reg_type = PTR_TO_SOCK_COMMON_OR_NULL;
+		return true;
+	}
+
+	/* All remaining exposed fields are read as u32 scalars. */
+	if (size != sizeof(__u32))
 		return false;
 
 	switch (off) {
@@ -1092,6 +1102,7 @@ static bool cg_skb_is_valid_access(int off, int size,
 	case offsetof(struct __sk_buff, ifindex):
 	case offsetof(struct __sk_buff, hash):
 	case offsetof(struct __sk_buff, mark):
+	case offsetof(struct __sk_buff, gso_segs):
 		break;
 	default:
 		return false;
@@ -1163,6 +1174,31 @@ static u32 cg_skb_convert_ctx_access(enum bpf_access_type type, int dst_reg,
 		else
 			*insn++ = BPF_LDX_MEM(BPF_W, dst_reg, src_reg,
 					      offsetof(struct sk_buff, mark));
+		break;
+	case offsetof(struct __sk_buff, sk):
+		/* dst = skb->sk (borrowed sock_common pointer) */
+		*insn++ = BPF_LDX_MEM(BPF_FIELD_SIZEOF(struct sk_buff, sk),
+				      dst_reg, src_reg,
+				      offsetof(struct sk_buff, sk));
+		break;
+	case offsetof(struct __sk_buff, gso_segs):
+		/* Read skb_shinfo(skb)->gso_segs, where
+		 * skb_shinfo(skb) == skb->head + skb->end (end is a u32 offset
+		 * on this NET_SKBUFF_DATA_USES_OFFSET build). BPF_REG_AX is the
+		 * hidden scratch register (mapped by the JIT, and now backed by
+		 * the interpreter's register file) used to hold skb->end while
+		 * dst_reg holds skb->head.
+		 */
+		BUILD_BUG_ON(FIELD_SIZEOF(struct sk_buff, end) != 4);
+		*insn++ = BPF_LDX_MEM(BPF_W, BPF_REG_AX, src_reg,
+				      offsetof(struct sk_buff, end));
+		*insn++ = BPF_LDX_MEM(BPF_FIELD_SIZEOF(struct sk_buff, head),
+				      dst_reg, src_reg,
+				      offsetof(struct sk_buff, head));
+		*insn++ = BPF_ALU64_REG(BPF_ADD, dst_reg, BPF_REG_AX);
+		BUILD_BUG_ON(FIELD_SIZEOF(struct skb_shared_info, gso_segs) != 2);
+		*insn++ = BPF_LDX_MEM(BPF_H, dst_reg, dst_reg,
+				      offsetof(struct skb_shared_info, gso_segs));
 		break;
 	}
 

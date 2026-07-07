@@ -1073,6 +1073,11 @@ static int check_mem_access(struct bpf_verifier_env *env, int insn_idx, u32 regn
 							 value_regno);
 			/* note that reg.[id|off|range] == 0 */
 			state->regs[value_regno].type = reg_type;
+			/* A pointer-or-NULL context field (e.g. skb->sk) needs a
+			 * unique id so a later NULL check marks only this reg.
+			 */
+			if (reg_type_may_be_null(reg_type))
+				state->regs[value_regno].id = ++env->id_gen;
 		}
 
 	} else if (reg->type == FRAME_PTR || reg->type == PTR_TO_STACK) {
