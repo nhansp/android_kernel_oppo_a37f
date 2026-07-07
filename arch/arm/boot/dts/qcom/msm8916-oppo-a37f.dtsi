@@ -1,0 +1,285 @@
+/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/*
+ * OPPO A37f (msm8916 MTP + OPPO overlays), arm64.
+ *
+ * A37f-specific hardware ported from the real device's running device tree
+ * (~/vibe/aosp/a37f-dumps/live.dts, /proc/device-tree reconstruction).
+ * GPIO/regulator/IRQ numbers and compatible strings are taken verbatim from
+ * live.dts; numeric phandles were resolved to the arm64 tree's labels:
+ *   live 0x48 -> &msm_gpio (TLMM)
+ *   live 0x64 -> pm8916_l17 (vdd_2v8 / sensor+touch VDD)
+ *   live 0x65 -> pm8916_l6  (vcc_i2c_1v8 / sensor+touch VIO)
+ *   live 0x4a -> pm8916_l16 (vlogic)
+ *   live 0xca -> pm8916_l6  (charger vcc_i2c)
+ */
+
+#include "msm8916-mtp.dtsi"
+#include "15399/dsi-panel-oppo15399boe-ili9881c-720p-video.dtsi"
+#include "batterydata-oppo-a37f.dtsi"
+
+/* ---- Touch: Synaptics S3203 on BLSP1 QUP5 (i2c@78b9000) ---- *
+ * live.dts: synaptics15009@20, compatible "synaptics-s3203".
+ * The in-tree synaptics_dsx driver matches "synaptics,dsx"; both are listed
+ * so the driver binds while the OPPO string is preserved.
+ * IRQ GPIO 13 (0xd, flags 0x2008); display 720x1280, panel 1100x1745.
+ */
+&i2c_5 {
+	/delete-node/ synaptics@20;
+
+	synaptics@20 {
+		compatible = "synaptics-s3203", "synaptics,dsx";
+		reg = <0x20>;
+		interrupt-parent = <&msm_gpio>;
+		interrupts = <13 0x2008>;
+		vdd-supply = <&pm8916_l17>;
+		vcc_i2c-supply = <&pm8916_l6>;
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend", "pmx_ts_release";
+		pinctrl-0 = <&ts_int_active>;
+		pinctrl-1 = <&ts_int_suspend>;
+		pinctrl-2 = <&ts_release>;
+		synaptics,irq-gpio = <&msm_gpio 13 0x2008>;
+		synaptics,display-coords = <0 0 720 1280>;
+		synaptics,panel-coords = <0 0 1100 1745>;
+		synaptics,button-map = <100 140 1400>;
+		synaptics,max-num-support = <10>;
+		synaptics,tx-rx-num = <13 23>;
+		synaptics,i2c-pull-up;
+		synaptics,power-down;
+		synaptics,disable-gpios;
+		synaptics,black-gesture-enabled;
+		clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
+			 <&clock_gcc clk_gcc_blsp1_qup5_i2c_apps_clk>;
+		clock-names = "iface_clk", "core_clk";
+	};
+
+	/* live.dts: ti_lm3630_bl@38 backlight controller (LM3630) */
+	lm3630_bl@38 {
+		compatible = "lm3630_bl";
+		reg = <0x38>;
+		bl_i2c_1v8-supply = <&pm8916_l6>;
+		ti,bl-enable-gpio = <&msm_gpio 69 0>;
+		ti,bank-a-ctrl = <0x5>;
+		ti,init-brt-led1 = <0xc8>;
+		ti,init-brt-led2 = <0xc8>;
+		ti,max-brt-led1 = <0xff>;
+		ti,max-brt-led2 = <0xff>;
+		ti,pwm-active = <0x0>;
+		ti,pwm-ctrl = <0x0>;
+		ti,pwm-period = <0xff>;
+	};
+};
+
+/* ---- Sensors on BLSP1 QUP2 (i2c@78b6000) ---- *
+ * A37f populates the generic MTP sensor bus with several alternates; only
+ * the physically-present parts probe. Runtime (input-devices) confirms the
+ * live ones: lis3dh accel @0x19, mmc3416x compass @0x30, ALS/prox @0x53.
+ * All ported verbatim from live.dts i2c@78b6000. mpu6050@68 / avago@39 /
+ * akm@c already exist from msm8916-mtp.dtsi.
+ */
+&i2c_0 {
+	/* Accel: ST LIS3DH (input dev "lis3dh-accel") */
+	st@19 {
+		compatible = "st,lis3dh";
+		reg = <0x19>;
+		interrupt-parent = <&msm_gpio>;
+		vdd-supply = <&pm8916_l17>;
+		vddio-supply = <&pm8916_l6>;
+		st,min-interval = <5>;
+		st,init-interval = <200>;
+		st,axis-map-x = <1>;
+		st,axis-map-y = <0>;
+		st,axis-map-z = <2>;
+		st,g-range = <2>;
+		st,negate-x;
+		status = "ok";
+	};
+
+	/* Compass/mag: MEMSIC MMC3416x (input dev "compass") */
+	memsic@30 {
+		compatible = "memsic,mmc3416x";
+		reg = <0x30>;
+		vdd-supply = <&pm8916_l17>;
+		vio-supply = <&pm8916_l6>;
+		memsic,dir = "obverse-x-axis-leftward";
+		memsic,auto-report;
+	};
+
+	/* ALS+Prox: Sensortek STK3x1x (alternate, probes @0x48) */
+	stk@48 {
+		compatible = "stk,stk3x1x";
+		reg = <0x48>;
+		interrupt-parent = <&msm_gpio>;
+		interrupts = <9 0x2>;
+		stk,irq-gpio = <&msm_gpio 9 0x2>;
+		vdd-supply = <&pm8916_l17>;
+		vio-supply = <&pm8916_l6>;
+		stk,transmittance = <0x154>;
+		stk,state-reg = <0x0>;
+		stk,psctrl-reg = <0x31>;
+		stk,alsctrl-reg = <0x3a>;
+		stk,ledctrl-reg = <0x3f>;
+		stk,wait-reg = <0x10>;
+		stk,ps-thdh = <0x578>;
+		stk,ps-thdl = <0x514>;
+	};
+
+	/* ALS+Prox: APDS-9921 (runtime-active @0x53; see report re: driver) */
+	apds@53 {
+		compatible = "apds,apds9921";
+		reg = <0x53>;
+		interrupt-parent = <&msm_gpio>;
+		interrupts = <113 0x2>;
+		apds,irq-gpio = <&msm_gpio 113 0x2>;
+		vdd-supply = <&pm8916_l17>;
+		vio-supply = <&pm8916_l6>;
+		status = "ok";
+	};
+
+	/* Accel alternate: Kionix KXTJ9 */
+	kionix@1f {
+		compatible = "kionix,kxtj9";
+		reg = <0x1f>;
+		interrupt-parent = <&msm_gpio>;
+		vdd-supply = <&pm8916_l17>;
+		vio-supply = <&pm8916_l6>;
+		kionix,min-interval = <5>;
+		kionix,init-interval = <200>;
+		kionix,axis-map-x = <1>;
+		kionix,axis-map-y = <0>;
+		kionix,axis-map-z = <2>;
+		kionix,g-range = <2>;
+		kionix,negate-x;
+		kionix,res-12bit;
+		status = "ok";
+	};
+
+	/* Compass alternate: Yamaha YAS533 */
+	yamaha@2e {
+		compatible = "yamaha,yas533";
+		reg = <0x2e>;
+		vdd-supply = <&pm8916_l17>;
+		vio-supply = <&pm8916_l6>;
+		yamaha,dir = <6>;
+	};
+};
+
+/* ---- Charger: TI BQ24196 on BLSP1 QUP4 (i2c@78b8000) ---- *
+ * live.dts: qcom_bq24196@6b, compatible "ti,bq24196-charger", + otg vreg.
+ * IRQ GPIO 62 (0x3e). See report: no in-tree ti,bq24196 driver yet.
+ */
+&i2c_4 {
+	qcom_bq24196@6b {
+		compatible = "ti,bq24196-charger";
+		reg = <0x6b>;
+		regulator-name = "bq24196_otg_vreg";
+		interrupt-parent = <&msm_gpio>;
+		qcom,irq-gpio = <&msm_gpio 62 0x0>;
+		vcc_i2c_opcharger-supply = <&pm8916_l6>;
+		qcom,bms-psy-name = "bms";
+		qcom,float-voltage-mv = <4370>;
+		qcom,recharge-mv = <200>;
+		qcom,iterm-ma = <130>;
+		qcom,input-current-max-ma = <1500>;
+		qcom,fastchg-current-max-ma = <1500>;
+		qcom,fast-charger-project-sign = <0>;
+		qcom,chg-vadc = <&pm8916_vadc>;
+		qcom,chg-adc_tm = <&pm8916_adc_tm>;
+		qcom,charger-inhibit-disabled;
+		qcom,using-pmic-therm;
+		qcom,disable-apsd;
+		qcom,bat_present_decidegc = <200>;
+		qcom,cold_bat_decidegc = <30>;
+		qcom,cool_bat_decidegc = <0>;
+		qcom,pre_cool1_bat_decidegc = <50>;
+		qcom,pre_cool_bat_decidegc = <120>;
+		qcom,pre_normal_bat_decidegc = <220>;
+		qcom,warm_bat_decidegc = <450>;
+		qcom,hot_bat_decidegc = <530>;
+		qcom,temp_cool_fastchg_current_ma = <256>;
+		qcom,temp_cool_vfloat_mv = <4000>;
+		qcom,temp_pre_cool1_fastchg_current_ma = <350>;
+		qcom,temp_pre_cool1_vfloat_mv = <4370>;
+		qcom,temp_pre_cool_fastchg_current_ma = <535>;
+		qcom,temp_pre_cool_vfloat_mv = <4370>;
+		qcom,temp_pre_normal_fastchg_current_ma = <1050>;
+		qcom,temp_pre_normal_vfloat_mv = <4370>;
+		qcom,temp_warm_fastchg_current_ma = <1500>;
+		qcom,temp_warm_vfloat_mv = <4370>;
+		qcom,temp_hot_fastchg_current_ma = <520>;
+		qcom,temp_hot_vfloat_mv = <4110>;
+		qcom,non_standard_fastchg_current_ma = <512>;
+		qcom,non_standard_vfloat_mv = <4000>;
+	};
+};
+
+/* ---- Keys: gpio-keys (volume) ---- *
+ * live.dts: vol_down GPIO 108 code 114, vol_up GPIO 107 code 115.
+ * Drop the generic MTP camera keys (no camera keys on A37f).
+ */
+&soc {
+	gpio_keys {
+		/delete-node/ camera_focus;
+		/delete-node/ camera_snapshot;
+
+		vol_down {
+			label = "volume_down";
+			gpios = <&msm_gpio 108 0x1>;
+			linux,input-type = <1>;
+			linux,code = <114>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+		};
+	};
+
+	/* ---- OEM: OPPO device-info (hw-id straps) ---- *
+	 * live.dts: compatible "oppo-devinfo". See report: no in-tree driver.
+	 */
+	devinfo {
+		compatible = "oppo-devinfo";
+		Hw,operator-gpio1 = <&msm_gpio 16 0x0>;
+		Hw,operator-gpio2 = <&msm_gpio 17 0x0>;
+		Hw,operator-gpio3 = <&msm_gpio 106 0x0>;
+		Hw,sub_hwid_1 = <&msm_gpio 86 0x0>;
+		Hw,sub_hwid_2 = <&msm_gpio 111 0x0>;
+	};
+
+	/* ---- OEM: OPPO NV backup shared memory (UIO) ---- *
+	 * live.dts: qcom,opponvbk_sharedmem@0x85f00000, sharedmem-uio.
+	 */
+	qcom,opponvbk_sharedmem@85f00000 {
+		compatible = "qcom,sharedmem-uio";
+		reg = <0x85f00000 0x100000>;
+		reg-names = "opponvbk";
+		qcom,client-id = <0x3>;
+	};
+};
+
+/* ---- Display: BOE ILI9881C 720p video (fitted panel per cmdline) ---- */
+&mdss_dsi0 {
+	qcom,dsi-pref-prim-pan = <&dsi_oppo15399boe_ili9881c_720p_video>;
+};
+
+&dsi_oppo15399boe_ili9881c_720p_video {
+	qcom,cont-splash-enabled;
+};
+
+/* ---- Battery: OPPO fuel-gauge profiles into qcom,vmbms ---- */
+&pm8916_bms {
+	status = "ok";
+	qcom,battery-data = <&oppo_a37f_batterydata>;
+};
+
+&pm8916_chg {
+	status = "ok";
+};
