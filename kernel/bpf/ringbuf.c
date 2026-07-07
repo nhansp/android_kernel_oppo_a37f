@@ -176,9 +176,10 @@ static struct bpf_map *ringbuf_map_alloc(union bpf_attr *attr)
 	rb_map->map.max_entries = attr->max_entries;
 	rb_map->map.map_flags = attr->map_flags;
 
-	rb_map->map.pages = sizeof(struct bpf_ringbuf_map) +
-			     sizeof(struct bpf_ringbuf) +
-			     attr->max_entries;
+	/* map.pages is a page count for memlock accounting, not a byte count. */
+	rb_map->map.pages = round_up(sizeof(struct bpf_ringbuf_map) +
+				     sizeof(struct bpf_ringbuf) +
+				     attr->max_entries, PAGE_SIZE) >> PAGE_SHIFT;
 	err = bpf_map_precharge_memlock(rb_map->map.pages);
 	if (err)
 		goto err_free_map;
