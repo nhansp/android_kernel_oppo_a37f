@@ -106,3 +106,6 @@ ifeq ($(CONFIG_SENSORS_BMI160_I2C),y)
 endif
 obj-$(CONFIG_SENSORS_APDS9921)	+= apds9921.o
 CFLAGS_apds9921.o += -DVENDOR_EDIT
+obj-$(CONFIG_SENSORS_YAS533)	+= yas_mag_drv-yas532.o
+obj-$(CONFIG_SENSORS_YAS533)	+= yas_mag_drv-yas537.o
+obj-$(CONFIG_SENSORS_YAS533)	+= yas_mag_kernel.o
