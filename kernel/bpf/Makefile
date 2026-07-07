@@ -1,6 +1,7 @@
 obj-$(CONFIG_BPF) += core.o
 obj-$(CONFIG_CGROUP_BPF) += cgroup.o
 obj-$(CONFIG_BPF_SYSCALL) += syscall.o arraymap.o hashtab.o
+obj-$(CONFIG_BPF_SYSCALL) += lpm_trie.o
 obj-$(CONFIG_BPF_SYSCALL) += verifier.o inode.o
 CFLAGS_syscall.o := -Wno-declaration-after-statement
 obj-$(CONFIG_BPF_SYSCALL) += verifier.o inode.o
