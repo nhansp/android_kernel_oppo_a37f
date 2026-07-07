@@ -173,6 +173,7 @@ struct bpf_prog_aux {
 struct bpf_prog {
 	u16			pages;
 	u16			jited:1;
+	u32			jited_len;	/* size of JITed image in bytes */
 	u32			len;
 	enum bpf_prog_type	type;
 	struct bpf_prog		*orig_prog;
