@@ -12,3 +12,12 @@ config OPPO_COMMON_SOFT
 	  exposing is_project()/get_PCB_Version() and /proc/oppoVersion/*.
 
 source "drivers/soc/oppo/oppo_project/Kconfig"
+
+config OPPO_DEVICE_IFNO
+	bool "OPPO device-info (/proc/devinfo board straps)"
+	select OPPO_ARCH_FILE
+	help
+	  Register board/mainboard/DDR/PA identification under /proc/devinfo,
+	  binding the "oppo-devinfo" platform node.
+
+source "drivers/soc/oppo/oppo_devinfo/Kconfig"
