@@ -58,9 +58,6 @@ extern void sk_decode_filter(struct sock_filter *filt, struct sock_filter *to);
 #include <linux/linkage.h>
 #include <linux/printk.h>
 
-extern void bpf_jit_compile(struct sk_filter *fp);
-extern void bpf_jit_free(struct sk_filter *fp);
-
 static inline void bpf_jit_dump(unsigned int flen, unsigned int proglen,
 				u32 pass, void *image)
 {
@@ -72,12 +69,6 @@ static inline void bpf_jit_dump(unsigned int flen, unsigned int proglen,
 }
 #define SK_RUN_FILTER(FILTER, SKB) (*FILTER->bpf_func)(SKB, FILTER->insns)
 #else
-static inline void bpf_jit_compile(struct sk_filter *fp)
-{
-}
-static inline void bpf_jit_free(struct sk_filter *fp)
-{
-}
 #define SK_RUN_FILTER(FILTER, SKB) sk_run_filter(SKB, FILTER->insns)
 #endif
 
@@ -153,10 +144,12 @@ enum {
 
 #include <uapi/linux/bpf.h>
 #include <linux/bpf_verifier.h>
+#include <linux/rbtree_latch.h>
 
 struct bpf_prog_aux {
 	struct work_struct	work;
 	struct list_head	ksym_lnode;
+	struct latch_tree_node	ksym_tnode;	/* JIT kallsyms latch-tree node */
 	atomic_t refcnt;
 	u32 max_ctx_offset;
 	struct rcu_head rcu;
@@ -194,6 +187,78 @@ static inline unsigned int bpf_prog_size(unsigned int proglen) {
 	return max_t(unsigned int, sizeof(struct bpf_prog),
 		     offsetof(struct bpf_prog, insnsi[proglen]));
 }
+
+#ifdef CONFIG_BPF_JIT
+/*
+ * eBPF JIT binary-image machinery. mainline keeps these in filter.h; the 3.10
+ * backport left them out while CONFIG_BPF_JIT stayed off. They are additive and
+ * only compiled when the JIT is enabled.
+ */
+struct bpf_binary_header {
+	u32 pages;
+	u8 image[] __aligned(4);
+};
+
+typedef void (*bpf_jit_fill_hole_t)(void *area, unsigned int size);
+
+extern int bpf_jit_enable;
+
+struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog);
+struct bpf_prog *bpf_jit_blind_constants(struct bpf_prog *fp);
+void bpf_jit_prog_release_other(struct bpf_prog *fp, struct bpf_prog *fp_other);
+struct bpf_binary_header *
+bpf_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
+		     unsigned int alignment,
+		     bpf_jit_fill_hole_t bpf_fill_ill_insns);
+void bpf_jit_binary_free(struct bpf_binary_header *hdr);
+void bpf_jit_free(struct bpf_prog *fp);
+void bpf_prog_kallsyms_add(struct bpf_prog *fp);
+void bpf_prog_kallsyms_del(struct bpf_prog *fp);
+
+/* No set_memory_ro/x on this arm64 3.10 tree: JIT images stay RW+X. */
+static inline void bpf_prog_lock_ro(struct bpf_prog *fp) { }
+static inline void bpf_jit_binary_lock_ro(struct bpf_binary_header *hdr) { }
+static inline void bpf_jit_binary_unlock_ro(struct bpf_binary_header *hdr) { }
+static inline void bpf_jit_set_header_magic(struct bpf_binary_header *hdr) { }
+
+static inline struct bpf_binary_header *
+bpf_jit_binary_hdr(const struct bpf_prog *fp)
+{
+	unsigned long real_start = (unsigned long)fp->bpf_func;
+	unsigned long addr = real_start & PAGE_MASK;
+
+	return (void *)addr;
+}
+
+static inline bool bpf_prog_ebpf_jited(const struct bpf_prog *fp)
+{
+	return fp->jited;
+}
+
+static inline bool bpf_prog_was_classic(const struct bpf_prog *prog)
+{
+	return prog->type == BPF_PROG_TYPE_UNSPEC;
+}
+
+static inline bool bpf_jit_kallsyms_enabled(void)
+{
+	return false;
+}
+
+/* Constant blinding hardening is not used during bring-up. */
+static inline bool bpf_jit_blinding_enabled(void)
+{
+	return false;
+}
+
+/* The stub bpf_jit_comp.c used to provide this; the real JIT frees via the
+ * core allocator. bpf_jit_free() (core) calls it after releasing the image. */
+void __bpf_prog_free(struct bpf_prog *fp);
+static inline void bpf_prog_unlock_free(struct bpf_prog *fp)
+{
+	__bpf_prog_free(fp);
+}
+#endif /* CONFIG_BPF_JIT */
 
 
 u64 __bpf_call_base(u64 r1, u64 r2, u64 r3, u64 r4, u64 r5);

@@ -1359,6 +1359,12 @@ struct bpf_prog *bpf_prog_select_runtime(struct bpf_prog *fp, int *err)
 	fp->bpf_func = (void *) __bpf_prog_ret0_warn;
 #endif
 
+#ifdef CONFIG_BPF_JIT
+	/* Try to JIT-compile; on any failure this returns the prog unchanged
+	 * with the interpreter still installed above (additive fallback). */
+	fp = bpf_int_jit_compile(fp);
+#endif
+
 	/* eBPF JITs can rewrite the program in case constant
 	 * blinding is active. However, in case of error during
 	 * blinding, bpf_int_jit_compile() must always return a
