@@ -555,6 +555,24 @@ config MSM_BCL_PERIPHERAL_CTL
 
 source "drivers/power/reset/Kconfig"
 
+config OPPO_CHARGER
+	tristate "OPPO opchg battery/charger framework"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y to include support for the OPPO opchg charging framework which
+	  drives the external charger IC (TI BQ24196 on the A37f, i2c 0x6b) and
+	  registers the battery/dc power supplies. Replaces qpnp-linear-charger.
+
+config BQ24196_CHARGER
+	bool "TI BQ24196 chip layer for opchg"
+	depends on OPPO_CHARGER
+	default OPPO_CHARGER
+	help
+	  Parity selector for the TI BQ24196 chip layer inside the opchg
+	  framework. The opchg core probes the chip by DT compatible; this
+	  option is kept to match the stock a37f defconfig.
+
 endif # POWER_SUPPLY
 
 source "drivers/power/avs/Kconfig"
