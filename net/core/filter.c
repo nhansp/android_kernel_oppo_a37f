@@ -931,6 +931,68 @@ static const struct bpf_func_proto bpf_skb_load_bytes_proto = {
 	.arg4_type	= ARG_CONST_SIZE,
 };
 
+/* Backport of upstream bpf_skb_load_bytes_relative: copy 'len' bytes at
+ * 'offset' from either the MAC or the network header of the skb. */
+BPF_CALL_5(bpf_skb_load_bytes_relative, const struct sk_buff *, skb,
+	   u32, offset, void *, to, u32, len, u32, start_header)
+{
+	u8 *end = skb_tail_pointer(skb);
+	u8 *start, *ptr;
+
+	if (unlikely(offset > 0xffff))
+		goto err_clear;
+
+	switch (start_header) {
+	case BPF_HDR_START_MAC:
+		if (unlikely(!skb_mac_header_was_set(skb)))
+			goto err_clear;
+		start = skb_mac_header(skb);
+		break;
+	case BPF_HDR_START_NET:
+		start = skb_network_header(skb);
+		break;
+	default:
+		goto err_clear;
+	}
+
+	ptr = start + offset;
+
+	if (likely(ptr + len <= end)) {
+		memcpy(to, ptr, len);
+		return 0;
+	}
+
+err_clear:
+	memset(to, 0, len);
+	return -EFAULT;
+}
+
+static const struct bpf_func_proto bpf_skb_load_bytes_relative_proto = {
+	.func		= bpf_skb_load_bytes_relative,
+	.gpl_only	= false,
+	.ret_type	= RET_INTEGER,
+	.arg1_type	= ARG_PTR_TO_CTX,
+	.arg2_type	= ARG_ANYTHING,
+	.arg3_type	= ARG_PTR_TO_UNINIT_MEM,
+	.arg4_type	= ARG_CONST_SIZE,
+	.arg5_type	= ARG_ANYTHING,
+};
+
+/* Backport of upstream bpf_sk_fullsock: narrow a borrowed sock_common to a
+ * full struct sock, or NULL for a request/timewait mini-socket. The socket
+ * reference is borrowed (owned by the skb), so it is NOT ref-tracked. */
+BPF_CALL_1(bpf_sk_fullsock, struct sock *, sk)
+{
+	return sk_fullsock(sk) ? (unsigned long)sk : (unsigned long)NULL;
+}
+
+static const struct bpf_func_proto bpf_sk_fullsock_proto = {
+	.func		= bpf_sk_fullsock,
+	.gpl_only	= false,
+	.ret_type	= RET_PTR_TO_SOCKET_OR_NULL,
+	.arg1_type	= ARG_PTR_TO_SOCK_COMMON,
+};
+
 /* 3.10 struct sock has no sk_cookie (4.12+); adding one would break the
  * frozen sock ABI, so return a per-socket opaque id from the sk pointer.
  * Stable for the socket's lifetime; sufficient for netd's tag/stats maps. */
@@ -970,6 +1032,12 @@ cg_skb_func_proto(enum bpf_func_id func_id)
 	switch (func_id) {
 	case BPF_FUNC_skb_load_bytes:
 		return &bpf_skb_load_bytes_proto;
+	case BPF_FUNC_skb_load_bytes_relative:
+		return &bpf_skb_load_bytes_relative_proto;
+	case BPF_FUNC_sk_fullsock:
+		return &bpf_sk_fullsock_proto;
+	case BPF_FUNC_ktime_get_boot_ns:
+		return &bpf_ktime_get_boot_ns_proto;
 	case BPF_FUNC_get_socket_cookie:
 		return &bpf_get_socket_cookie_proto;
 	case BPF_FUNC_get_socket_uid:
