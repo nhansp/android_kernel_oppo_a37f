@@ -426,6 +426,34 @@ static int backup_ocv_soc(struct qpnp_bms_chip *chip, int ocv_uv, int soc)
 	return rc;
 }
 
+/*
+ * opchg_backup_ocv_soc - OPPO opchg hook to back up OCV/SOC into the
+ * VM-BMS hardware registers. Ported from the stock oppo-a37
+ * qpnp-vm-bms.c so that the opchg BMS layer (oppo_bms.c) can persist
+ * SoC across reboots on the A37f, which uses this fuel gauge.
+ */
+int opchg_backup_ocv_soc(int soc)
+{
+	int rc = 0;
+	static int soc_temp = 0;
+
+	if (the_chip == NULL) {
+		pr_err("%s the_chip is NULL\n", __func__);
+		return -1;
+	}
+
+	rc = backup_ocv_soc(the_chip, the_chip->last_ocv_uv, soc);
+	if (rc) {
+		pr_err("%s fail, rc = %d\n", __func__, rc);
+	} else if (soc_temp != soc) {
+		pr_err("%s backup soc=%d, last_ocv_uv=%d\n",
+			__func__, soc, the_chip->last_ocv_uv);
+		soc_temp = soc;
+	}
+
+	return the_chip->last_ocv_uv;
+}
+
 static int get_current_time(unsigned long *now_tm_sec)
 {
 	struct rtc_time tm;
