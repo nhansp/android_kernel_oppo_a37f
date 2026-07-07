@@ -37,6 +37,14 @@ struct bpf_reg_state {
 		u32 mem_size; /* for PTR_TO_MEM | PTR_TO_MEM_OR_NULL */
 	};
 	u32 id;
+	/* Reference-tracked pointers (e.g. a ringbuf record returned by
+	 * bpf_ringbuf_reserve()) carry the id of the reference they hold in
+	 * ref_obj_id. It is set at acquire time and matched at release time so
+	 * that check_reference_leak() at BPF_EXIT can reject leaking programs.
+	 * Unlike ->id (used only for NULL-marking), ref_obj_id survives the
+	 * NULL check and is cleared when the reference is released.
+	 */
+	u32 ref_obj_id;
 	/* Used to determine if any memory access using this register will
 	 * result in a bad access. These two fields must be last.
 	 * See states_equal()
@@ -44,6 +52,14 @@ struct bpf_reg_state {
 	s64 min_value;
 	u64 max_value;
 	bool value_from_signed;
+};
+
+/* One tracked reference (acquired resource) held by a verifier state. */
+struct bpf_reference_state {
+	/* Unique id of the reference, matched against bpf_reg_state.ref_obj_id. */
+	int id;
+	/* Instruction that acquired the reference, reported on a leak. */
+	int insn_idx;
 };
 
 enum bpf_stack_slot_type {
@@ -61,6 +77,14 @@ struct bpf_verifier_state {
 	struct bpf_reg_state regs[MAX_BPF_REG];
 	u8 stack_slot_type[MAX_BPF_STACK];
 	struct bpf_reg_state spilled_regs[MAX_BPF_STACK / BPF_REG_SIZE];
+	/* Reference tracking. Upstream keeps these in a per-frame
+	 * bpf_func_state; this tree has a single-frame verifier state, so the
+	 * acquired references live directly on bpf_verifier_state. refs is a
+	 * heap array of acquired_refs entries and must be deep-copied whenever
+	 * a verifier state is copied (see copy_reference_state()).
+	 */
+	u32 acquired_refs;
+	struct bpf_reference_state *refs;
 };
 
 /* linked list of verifier states used to prune search */

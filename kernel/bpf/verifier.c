@@ -149,6 +149,7 @@ struct bpf_call_arg_meta {
 	int regno;
 	int access_size;
 	int mem_size;
+	u32 ref_obj_id;
 };
 
 /* verbose verifier prints what it's seeing
@@ -427,6 +428,118 @@ static void print_bpf_insn(const struct bpf_verifier_env *env,
 	}
 }
 
+/* ------------------------------------------------------------------------
+ * Reference tracking (backported from linux-5.10 kernel/bpf/verifier.c,
+ * adapted to this tree's single-frame struct bpf_verifier_state).
+ *
+ * Upstream stores acquired references in a per-call-frame bpf_func_state;
+ * this verifier has a flat single-frame state, so the reference array lives
+ * directly on struct bpf_verifier_state (->refs / ->acquired_refs). The
+ * semantics are identical to upstream: an "acquire" helper (e.g.
+ * bpf_ringbuf_reserve) records a uniquely-ided reference, the matching
+ * "release" helper (bpf_ringbuf_submit / _discard) drops it, and
+ * check_reference_leak() at BPF_EXIT rejects any program that leaks one.
+ * ------------------------------------------------------------------------ */
+
+static bool reg_type_may_be_null(enum bpf_reg_type type)
+{
+	return type == PTR_TO_MAP_VALUE_OR_NULL ||
+	       type == PTR_TO_SOCKET_OR_NULL ||
+	       type == PTR_TO_SOCK_COMMON_OR_NULL ||
+	       type == PTR_TO_MEM_OR_NULL;
+}
+
+/* Deep-copy the reference array from src into dst. dst->refs is (re)allocated
+ * so that dst becomes independent of src (both states may later diverge). The
+ * caller is responsible for the previous dst->refs (it is overwritten here, so
+ * it must have been consumed/freed or aliased to src by a preceding memcpy).
+ */
+static int copy_reference_state(struct bpf_verifier_state *dst,
+				const struct bpf_verifier_state *src)
+{
+	dst->refs = NULL;
+	dst->acquired_refs = 0;
+	if (!src->acquired_refs)
+		return 0;
+	dst->refs = kmalloc_array(src->acquired_refs,
+				  sizeof(struct bpf_reference_state),
+				  GFP_KERNEL);
+	if (!dst->refs)
+		return -ENOMEM;
+	memcpy(dst->refs, src->refs,
+	       sizeof(struct bpf_reference_state) * src->acquired_refs);
+	dst->acquired_refs = src->acquired_refs;
+	return 0;
+}
+
+static void free_reference_state(struct bpf_verifier_state *state)
+{
+	kfree(state->refs);
+	state->refs = NULL;
+	state->acquired_refs = 0;
+}
+
+/* Acquire a new reference and record the acquiring instruction.
+ * Returns the new reference id (> 0) or a negative errno.
+ */
+static int acquire_reference_state(struct bpf_verifier_env *env, int insn_idx)
+{
+	struct bpf_verifier_state *state = &env->cur_state;
+	struct bpf_reference_state *new_refs;
+	int new_ofs = state->acquired_refs;
+	int id;
+
+	new_refs = krealloc(state->refs,
+			    (state->acquired_refs + 1) *
+			    sizeof(struct bpf_reference_state),
+			    GFP_KERNEL);
+	if (!new_refs)
+		return -ENOMEM;
+	state->refs = new_refs;
+	id = ++env->id_gen;
+	state->refs[new_ofs].id = id;
+	state->refs[new_ofs].insn_idx = insn_idx;
+	state->acquired_refs++;
+	return id;
+}
+
+/* Release the reference with the given id. Idempotent per upstream: the freed
+ * slot is filled from the last slot to keep the array dense.
+ */
+static int release_reference_state(struct bpf_verifier_state *state, int ptr_id)
+{
+	int i, last_idx = state->acquired_refs - 1;
+
+	for (i = 0; i < state->acquired_refs; i++) {
+		if (state->refs[i].id == ptr_id) {
+			if (last_idx && i != last_idx)
+				memcpy(&state->refs[i], &state->refs[last_idx],
+				       sizeof(state->refs[i]));
+			memset(&state->refs[last_idx], 0,
+			       sizeof(state->refs[last_idx]));
+			state->acquired_refs--;
+			return 0;
+		}
+	}
+	return -EINVAL;
+}
+
+/* Defined later (needs mark_reg_unknown_value); used by check_call() above it. */
+static int release_reference(struct bpf_verifier_env *env, int ref_obj_id);
+
+/* At BPF_EXIT, every acquired reference must have been released. */
+static int check_reference_leak(struct bpf_verifier_env *env)
+{
+	struct bpf_verifier_state *state = &env->cur_state;
+	int i;
+
+	for (i = 0; i < state->acquired_refs; i++)
+		verbose("Unreleased reference id=%d alloc_insn=%d\n",
+			state->refs[i].id, state->refs[i].insn_idx);
+
+	return state->acquired_refs ? -EINVAL : 0;
+}
+
 static int pop_stack(struct bpf_verifier_env *env, int *prev_insn_idx)
 {
 	struct bpf_verifier_stack_elem *elem;
@@ -435,6 +548,11 @@ static int pop_stack(struct bpf_verifier_env *env, int *prev_insn_idx)
 	if (env->head == NULL)
 		return -1;
 
+	/* Drop the references owned by the state we are about to discard, then
+	 * transfer ownership of head->st.refs into cur_state via the memcpy
+	 * below (head is freed without touching head->st.refs).
+	 */
+	free_reference_state(&env->cur_state);
 	memcpy(&env->cur_state, &env->head->st, sizeof(env->cur_state));
 	insn_idx = env->head->insn_idx;
 	if (prev_insn_idx)
@@ -461,6 +579,12 @@ static struct bpf_verifier_state *push_stack(struct bpf_verifier_env *env,
 	elem->next = env->head;
 	env->head = elem;
 	env->stack_size++;
+	/* The memcpy above aliased elem->st.refs onto cur_state.refs; give the
+	 * pushed state its own deep copy so the two can diverge independently.
+	 * On failure elem->st.refs is left NULL, so the pop below is safe.
+	 */
+	if (copy_reference_state(&elem->st, &env->cur_state))
+		goto err;
 	if (env->stack_size > BPF_COMPLEXITY_LIMIT_STACK) {
 		verbose("BPF program is too complex\n");
 		goto err;
@@ -499,6 +623,7 @@ static void __mark_reg_unknown_value(struct bpf_reg_state *regs, u32 regno)
 {
 	regs[regno].type = UNKNOWN_VALUE;
 	regs[regno].id = 0;
+	regs[regno].ref_obj_id = 0;
 	regs[regno].imm = 0;
 }
 
@@ -1214,6 +1339,19 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 		return -EFAULT;
 	}
 
+	/* If this argument carries a tracked reference (e.g. the ringbuf record
+	 * passed to bpf_ringbuf_submit), remember its id so a release helper can
+	 * drop it. Only one ref-carrying argument per call is expected.
+	 */
+	if (reg->ref_obj_id) {
+		if (meta->ref_obj_id) {
+			verbose("verifier internal error: more than one arg with ref_obj_id R%d %u %u\n",
+				regno, reg->ref_obj_id, meta->ref_obj_id);
+			return -EFAULT;
+		}
+		meta->ref_obj_id = reg->ref_obj_id;
+	}
+
 	if (arg_type == ARG_CONST_MAP_PTR) {
 		/* bpf_map_xxx(map_ptr) call: remember that map_ptr */
 		meta->map_ptr = reg->map_ptr;
@@ -1326,6 +1464,12 @@ static int check_func_arg(struct bpf_verifier_env *env, u32 regno,
 			err = check_helper_mem_access(env, regno - 1, reg->imm,
 						      zero_size_allowed, meta);
 		}
+	} else if (arg_type == ARG_CONST_ALLOC_SIZE_OR_ZERO) {
+		/* Size of the region to allocate (e.g. bpf_ringbuf_reserve()).
+		 * Record it so the acquired PTR_TO_MEM carries the right size.
+		 */
+		if (type == CONST_IMM && meta)
+			meta->mem_size = reg->imm;
 	}
 
 	return err;
@@ -1465,6 +1609,15 @@ static void clear_all_pkt_pointers(struct bpf_verifier_env *env)
 	}
 }
 
+/* Helpers that release a previously-acquired reference (their ref-tracked
+ * argument is consumed). The verifier drops the reference for these calls.
+ */
+static bool is_release_function(int func_id)
+{
+	return func_id == BPF_FUNC_ringbuf_submit ||
+	       func_id == BPF_FUNC_ringbuf_discard;
+}
+
 static int check_call(struct bpf_verifier_env *env, int func_id, int insn_idx)
 {
 	struct bpf_verifier_state *state = &env->cur_state;
@@ -1542,6 +1695,25 @@ static int check_call(struct bpf_verifier_env *env, int func_id, int insn_idx)
 			return err;
 	}
 
+	if (func_id == BPF_FUNC_tail_call) {
+		/* tail_call transfers control, so no reference may be held. */
+		err = check_reference_leak(env);
+		if (err) {
+			verbose("tail_call would lead to reference leak\n");
+			return err;
+		}
+	} else if (is_release_function(func_id)) {
+		/* bpf_ringbuf_submit/discard consume the record reference that
+		 * bpf_ringbuf_reserve acquired.
+		 */
+		err = release_reference(env, meta.ref_obj_id);
+		if (err) {
+			verbose("func %d reference has not been acquired before\n",
+				func_id);
+			return err;
+		}
+	}
+
 	/* reset caller saved regs */
 	for (i = 0; i < CALLER_SAVED_REGS; i++) {
 		reg = regs + caller_saved[i];
@@ -1572,9 +1744,20 @@ static int check_call(struct bpf_verifier_env *env, int func_id, int insn_idx)
 		regs[BPF_REG_0].type = PTR_TO_SOCKET_OR_NULL;
 		regs[BPF_REG_0].id = ++env->id_gen;
 	} else if (fn->ret_type == RET_PTR_TO_ALLOC_MEM_OR_NULL) {
+		/* Acquire a tracked reference for the allocated memory region
+		 * (e.g. a bpf_ringbuf_reserve() record). It must be released by
+		 * bpf_ringbuf_submit/discard, else check_reference_leak() at
+		 * BPF_EXIT rejects the program. id is used for NULL-marking,
+		 * ref_obj_id ties the region to its release.
+		 */
+		int id = acquire_reference_state(env, insn_idx);
+
+		if (id < 0)
+			return id;
 		regs[BPF_REG_0].max_value = regs[BPF_REG_0].min_value = 0;
 		regs[BPF_REG_0].type = PTR_TO_MEM_OR_NULL;
-		regs[BPF_REG_0].id = ++env->id_gen;
+		regs[BPF_REG_0].id = id;
+		regs[BPF_REG_0].ref_obj_id = id;
 		regs[BPF_REG_0].mem_size = meta.mem_size;
 	} else {
 		verbose("unknown return type %d of func %d\n",
@@ -2092,6 +2275,8 @@ static int check_alu_op(struct bpf_verifier_env *env, struct bpf_insn *insn)
 
 			regs[insn->dst_reg].type = CONST_IMM;
 			regs[insn->dst_reg].imm = imm;
+			regs[insn->dst_reg].id = 0;
+			regs[insn->dst_reg].ref_obj_id = 0;
 			regs[insn->dst_reg].max_value = imm;
 			regs[insn->dst_reg].min_value = imm;
 		}
@@ -2444,31 +2629,69 @@ static void reg_set_min_max_inv(struct bpf_reg_state *true_reg,
 	}
 }
 
-static void mark_map_reg(struct bpf_reg_state *regs, u32 regno, u32 id,
-			 enum bpf_reg_type type)
+/* The pointer with the given ref_obj_id released its kernel resource; clear
+ * every register (and spill slot) that still holds a copy of it.
+ */
+static int release_reference(struct bpf_verifier_env *env, int ref_obj_id)
+{
+	struct bpf_verifier_state *state = &env->cur_state;
+	struct bpf_reg_state *regs = state->regs, *reg;
+	int err, i;
+
+	err = release_reference_state(state, ref_obj_id);
+	if (err)
+		return err;
+
+	for (i = 0; i < MAX_BPF_REG; i++)
+		if (regs[i].ref_obj_id == ref_obj_id)
+			mark_reg_unknown_value(regs, i);
+
+	for (i = 0; i < MAX_BPF_STACK; i += BPF_REG_SIZE) {
+		if (state->stack_slot_type[i] != STACK_SPILL)
+			continue;
+		reg = &state->spilled_regs[i / BPF_REG_SIZE];
+		if (reg->ref_obj_id == ref_obj_id)
+			__mark_reg_unknown_value(state->spilled_regs,
+						 i / BPF_REG_SIZE);
+	}
+	return 0;
+}
+
+/* Resolve one PTR_TO_*_OR_NULL register after a NULL test on ptr id 'id':
+ * on the NULL branch it becomes a plain scalar; on the non-NULL branch it
+ * gets its concrete pointer type. ref_obj_id is preserved on the non-NULL
+ * branch (needed to later release the reference) and cleared on the NULL
+ * branch (handled by __mark_reg_unknown_value / mark_ptr_or_null_regs).
+ */
+static void mark_ptr_or_null_reg(struct bpf_reg_state *regs, u32 regno, u32 id,
+				 bool is_null)
 {
 	struct bpf_reg_state *reg = &regs[regno];
+	enum bpf_reg_type type = reg->type;
 
-	if (reg->type == PTR_TO_MAP_VALUE_OR_NULL && reg->id == id) {
-		if (type == UNKNOWN_VALUE) {
-			__mark_reg_unknown_value(regs, regno);
-		} else if (reg->type == PTR_TO_MAP_VALUE_OR_NULL) {
+	if (!reg_type_may_be_null(type) || reg->id != id)
+		return;
+
+	if (is_null) {
+		/* Also resets reg->id and reg->ref_obj_id. */
+		__mark_reg_unknown_value(regs, regno);
+	} else {
+		if (type == PTR_TO_MAP_VALUE_OR_NULL) {
 			if (reg->map_ptr->inner_map_meta) {
 				reg->type = CONST_PTR_TO_MAP;
 				reg->map_ptr = reg->map_ptr->inner_map_meta;
 			} else {
 				reg->type = PTR_TO_MAP_VALUE;
 			}
-		} else if (reg->type == PTR_TO_SOCKET_OR_NULL) {
+		} else if (type == PTR_TO_SOCKET_OR_NULL) {
 			reg->type = PTR_TO_SOCKET;
-		} else if (reg->type == PTR_TO_SOCK_COMMON_OR_NULL) {
+		} else if (type == PTR_TO_SOCK_COMMON_OR_NULL) {
 			reg->type = PTR_TO_SOCK_COMMON;
-		} else if (reg->type == PTR_TO_MEM_OR_NULL) {
+		} else if (type == PTR_TO_MEM_OR_NULL) {
 			reg->type = PTR_TO_MEM;
 		}
-		/* We don't need id from this point onwards anymore, thus we
-		 * should better reset it, so that state pruning has chances
-		 * to take effect.
+		/* id was only for NULL-marking; drop it so pruning can kick in.
+		 * ref_obj_id stays so the reference can still be released.
 		 */
 		reg->id = 0;
 	}
@@ -2477,20 +2700,29 @@ static void mark_map_reg(struct bpf_reg_state *regs, u32 regno, u32 id,
 /* The logic is similar to find_good_pkt_pointers(), both could eventually
  * be folded together at some point.
  */
-static void mark_map_regs(struct bpf_verifier_state *state, u32 regno,
-			  enum bpf_reg_type type)
+static void mark_ptr_or_null_regs(struct bpf_verifier_state *state, u32 regno,
+				  bool is_null)
 {
 	struct bpf_reg_state *regs = state->regs;
+	u32 ref_obj_id = regs[regno].ref_obj_id;
 	u32 id = regs[regno].id;
 	int i;
 
+	/* On the NULL branch, a pointer that held a reference can never have
+	 * been released yet (the NULL check happens before any use), so drop
+	 * the reference state here.
+	 */
+	if (ref_obj_id && ref_obj_id == id && is_null)
+		WARN_ON_ONCE(release_reference_state(state, id));
+
 	for (i = 0; i < MAX_BPF_REG; i++)
-		mark_map_reg(regs, i, id, type);
+		mark_ptr_or_null_reg(regs, i, id, is_null);
 
 	for (i = 0; i < MAX_BPF_STACK; i += BPF_REG_SIZE) {
 		if (state->stack_slot_type[i] != STACK_SPILL)
 			continue;
-		mark_map_reg(state->spilled_regs, i / BPF_REG_SIZE, id, type);
+		mark_ptr_or_null_reg(state->spilled_regs, i / BPF_REG_SIZE, id,
+				     is_null);
 	}
 }
 
@@ -2577,17 +2809,20 @@ static int check_cond_jmp_op(struct bpf_verifier_env *env,
 					dst_reg, insn->imm, opcode);
 	}
 
-	/* detect if R == 0 where R is returned from bpf_map_lookup_elem() */
+	/* detect if R == 0 where R is a pointer-or-NULL, e.g. returned from
+	 * bpf_map_lookup_elem(), bpf_ringbuf_reserve() or bpf_sk_fullsock().
+	 */
 	if (BPF_SRC(insn->code) == BPF_K &&
 	    insn->imm == 0 && (opcode == BPF_JEQ || opcode == BPF_JNE) &&
-	    dst_reg->type == PTR_TO_MAP_VALUE_OR_NULL) {
-		/* Mark all identical map registers in each branch as either
-		 * safe or unknown depending R == 0 or R != 0 conditional.
+	    reg_type_may_be_null(dst_reg->type)) {
+		/* Mark all identical pointer registers in each branch as either
+		 * safe or NULL depending on the R == 0 / R != 0 conditional, and
+		 * release the tracked reference on whichever branch is NULL.
 		 */
-		mark_map_regs(this_branch, insn->dst_reg,
-			      opcode == BPF_JEQ ? PTR_TO_MAP_VALUE : UNKNOWN_VALUE);
-		mark_map_regs(other_branch, insn->dst_reg,
-			      opcode == BPF_JEQ ? UNKNOWN_VALUE : PTR_TO_MAP_VALUE);
+		mark_ptr_or_null_regs(this_branch, insn->dst_reg,
+				      opcode == BPF_JNE);
+		mark_ptr_or_null_regs(other_branch, insn->dst_reg,
+				      opcode == BPF_JEQ);
 	} else if (BPF_SRC(insn->code) == BPF_X && opcode == BPF_JGT &&
 		   dst_reg->type == PTR_TO_PACKET &&
 		   regs[insn->src_reg].type == PTR_TO_PACKET_END) {
@@ -3026,8 +3261,12 @@ static bool states_equal(struct bpf_verifier_env *env,
 
 		/* If the ranges were not the same, but everything else was and
 		 * we didn't do a variable access into a map then we are a-ok.
+		 * A differing ref_obj_id must still block pruning so that a
+		 * state holding a reference is never treated as equivalent to
+		 * one that does not.
 		 */
 		if (!varlen_map_access &&
+		    rold->ref_obj_id == rcur->ref_obj_id &&
 		    memcmp(rold, rcur, offsetofend(struct bpf_reg_state, id)) == 0)
 			continue;
 
@@ -3083,6 +3322,18 @@ static bool states_equal(struct bpf_verifier_env *env,
 		else
 			continue;
 	}
+
+	/* States are only equivalent if they hold the same set of acquired
+	 * references (same count and same ids). This keeps a state that still
+	 * owns a reference from being pruned against one that has released it.
+	 */
+	if (old->acquired_refs != cur->acquired_refs)
+		return false;
+	if (old->acquired_refs &&
+	    memcmp(old->refs, cur->refs,
+		   sizeof(*old->refs) * old->acquired_refs))
+		return false;
+
 	return true;
 }
 
@@ -3119,6 +3370,13 @@ static int is_state_visited(struct bpf_verifier_env *env, int insn_idx)
 
 	/* add new state to the head of linked list */
 	memcpy(&new_sl->state, &env->cur_state, sizeof(env->cur_state));
+	/* Deep-copy the references so the stored explored state owns its own
+	 * refs array (the memcpy above only aliased cur_state.refs).
+	 */
+	if (copy_reference_state(&new_sl->state, &env->cur_state)) {
+		kfree(new_sl);
+		return -ENOMEM;
+	}
 	new_sl->next = env->explored_states[insn_idx];
 	env->explored_states[insn_idx] = new_sl;
 	return 0;
@@ -3409,6 +3667,13 @@ static int do_check(struct bpf_verifier_env *env)
 					verbose("R0 leaks addr as return value\n");
 					return -EACCES;
 				}
+
+				/* Every acquired reference must be released
+				 * before the program returns.
+				 */
+				err = check_reference_leak(env);
+				if (err)
+					return err;
 
 process_bpf_exit:
 				insn_idx = pop_stack(env, &prev_insn_idx);
@@ -3895,6 +4160,7 @@ static void free_states(struct bpf_verifier_env *env)
 		if (sl)
 			while (sl != STATE_LIST_MARK) {
 				sln = sl->next;
+				free_reference_state(&sl->state);
 				kfree(sl);
 				sl = sln;
 			}
@@ -3974,6 +4240,8 @@ int bpf_check(struct bpf_prog **prog, union bpf_attr *attr)
 
 skip_full_check:
 	while (pop_stack(env, NULL) >= 0);
+	/* release references still held by the final current state */
+	free_reference_state(&env->cur_state);
 	free_states(env);
 
 	if (ret == 0)
@@ -4073,6 +4341,8 @@ int bpf_analyzer(struct bpf_prog *prog, const struct bpf_ext_analyzer_ops *ops,
 
 skip_full_check:
 	while (pop_stack(env, NULL) >= 0);
+	/* release references still held by the final current state */
+	free_reference_state(&env->cur_state);
 	free_states(env);
 
 	mutex_unlock(&bpf_verifier_lock);
