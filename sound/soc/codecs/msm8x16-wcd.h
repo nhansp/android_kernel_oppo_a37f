@@ -215,6 +215,7 @@ struct msm8916_asoc_mach_data {
 	int ext_pa;
 	int us_euro_gpio;
 	int spk_ext_pa_gpio;
+	int spk_pa_en;		/* YDA145 external speaker PA enable GPIO (OPPO A37f) */
 	int mclk_freq;
 	int lb_mode;
 	u8 micbias1_cap_mode;

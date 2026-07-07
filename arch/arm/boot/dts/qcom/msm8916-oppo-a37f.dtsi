@@ -283,3 +283,12 @@
 &pm8916_chg {
 	status = "ok";
 };
+
+/* OPPO A37f: GPIO 120 drives the YDA145 external speaker PA enable line
+ * (spk-pa-en), repurposed from the MTP base us-euro headset switch. */
+&soc {
+	sound {
+		/delete-property/ qcom,cdc-us-euro-gpios;
+		spk-pa-en = <&msm_gpio 120 0>;
+	};
+};

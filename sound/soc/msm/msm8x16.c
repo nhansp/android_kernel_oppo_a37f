@@ -1235,6 +1235,9 @@ static int msm_btsco_rate_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* YDA145 external speaker power-amp (GPIO-toggled), OPPO A37f */
+static const char *const spk_pa_text[] = {"DISABLE", "ENABLE"};
+
 static const struct soc_enum msm_snd_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, rx_bit_format_text),
 	SOC_ENUM_SINGLE_EXT(4, mi2s_tx_ch_text),
@@ -1242,6 +1245,7 @@ static const struct soc_enum msm_snd_enum[] = {
 	SOC_ENUM_SINGLE_EXT(6, pri_rx_sample_rate_text),
 	SOC_ENUM_SINGLE_EXT(6, mi2s_tx_sample_rate_text),
 	SOC_ENUM_SINGLE_EXT(2, mi2s_rx_sample_rate_text),
+	SOC_ENUM_SINGLE_EXT(2, spk_pa_text),
 };
 
 static const char *const btsco_rate_text[] = {"BTSCO_RATE_8KHZ",
@@ -1249,6 +1253,37 @@ static const char *const btsco_rate_text[] = {"BTSCO_RATE_8KHZ",
 static const struct soc_enum msm_btsco_enum[] = {
 	SOC_ENUM_SINGLE_EXT(2, btsco_rate_text),
 };
+
+/* YDA145 external speaker PA on/off via SPK_PA_EN mixer control (OPPO A37f) */
+static int speaker_pa_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	return 0;
+}
+
+static int speaker_pa_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	struct msm8916_asoc_mach_data *pdata =
+		snd_soc_card_get_drvdata(codec->card);
+
+	if (!gpio_is_valid(pdata->spk_pa_en))
+		return 0;
+
+	switch (ucontrol->value.integer.value[0]) {
+	case 1:
+		pr_debug("%s: enable YDA145 speaker PA\n", __func__);
+		gpio_direction_output(pdata->spk_pa_en, 1);
+		break;
+	case 0:
+	default:
+		pr_debug("%s: disable YDA145 speaker PA\n", __func__);
+		gpio_direction_output(pdata->spk_pa_en, 0);
+		break;
+	}
+	return 0;
+}
 
 static const struct snd_kcontrol_new msm_snd_controls[] = {
 	SOC_ENUM_EXT("MI2S_RX Format", msm_snd_enum[0],
@@ -1267,6 +1302,8 @@ static const struct snd_kcontrol_new msm_snd_controls[] = {
 			mi2s_tx_sample_rate_get, mi2s_tx_sample_rate_put),
 	SOC_ENUM_EXT("MI2S_RX SampleRate", msm_snd_enum[3],
 			mi2s_rx_sample_rate_get, mi2s_rx_sample_rate_put),
+	SOC_ENUM_EXT("SPK_PA_EN", msm_snd_enum[6],
+			speaker_pa_get, speaker_pa_put),
 };
 
 static int msm8x16_mclk_event(struct snd_soc_dapm_widget *w,
@@ -3232,6 +3269,7 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 	const char *ext_pa = "qcom,msm-ext-pa";
 	const char *mclk = "qcom,msm-mclk-freq";
 	const char *spk_ext_pa = "qcom,msm-spk-ext-pa";
+	const char *spk_pa_en_str = "spk-pa-en";
 	const char *ptr = NULL;
 	const char *type = NULL;
 	const char *ext_pa_str = NULL;
@@ -3305,6 +3343,22 @@ static int msm8x16_asoc_machine_probe(struct platform_device *pdev)
 				__func__, pdata->spk_ext_pa_gpio);
 			return -EINVAL;
 		}
+	}
+
+	/* YDA145 external speaker PA enable GPIO (OPPO A37f) */
+	pdata->spk_pa_en = of_get_named_gpio(pdev->dev.of_node,
+				spk_pa_en_str, 0);
+	if (pdata->spk_pa_en < 0) {
+		dev_dbg(&pdev->dev,
+			"%s: missing %s in dt node\n", __func__, spk_pa_en_str);
+	} else if (gpio_is_valid(pdata->spk_pa_en)) {
+		ret = gpio_request(pdata->spk_pa_en, "spk_pa_en");
+		if (ret)
+			dev_dbg(&pdev->dev,
+				"%s: gpio_request %s failed %d\n",
+				__func__, spk_pa_en_str, ret);
+		else
+			gpio_direction_output(pdata->spk_pa_en, 0);
 	}
 
 	ret = of_property_read_string(pdev->dev.of_node, codec_type, &ptr);
