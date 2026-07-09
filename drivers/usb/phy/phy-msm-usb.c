@@ -3066,7 +3066,14 @@ static void msm_chg_detect_work(struct work_struct *w)
 	queue_delayed_work(motg->otg_wq, &motg->chg_work, delay);
 }
 
-#define VBUS_INIT_TIMEOUT	msecs_to_jiffies(5000)
+/*
+ * A37f: the external bq24196/opcharger probe-defers (it waits for msm_otg to
+ * register the "usb" psy) and reports the initial VBUS PRESENT at ~9s, right as
+ * the stock 5s wait expires -> a photo-finish the OTG often loses, parking in
+ * LPM with no peripheral session (no adb). Widen the window so the deferred
+ * charger's VBUS notification reliably lands while sm_work is still waiting.
+ */
+#define VBUS_INIT_TIMEOUT	msecs_to_jiffies(12000)
 
 /*
  * We support OTG, Peripheral only and Host only configurations. In case
