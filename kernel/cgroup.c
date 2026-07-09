@@ -1780,6 +1780,25 @@ static struct file_system_type cgroup_fs_type = {
 	.kill_sb = cgroup_kill_sb,
 };
 
+/*
+ * Minimal cgroup2 (unified hierarchy) support: Android's libprocessgroup mounts
+ * "cgroup2" at /sys/fs/cgroup and needs a single unified hierarchy with cgroup.procs.
+ * Map it onto the 3.10 __DEVEL__sane_behavior unified hierarchy (all subsystems,
+ * no per-subsystem prefix) so process-group create/attach works.
+ */
+static struct dentry *cgroup2_mount(struct file_system_type *fs_type,
+			int flags, const char *unused_dev_name, void *data)
+{
+	return cgroup_mount(fs_type, flags, unused_dev_name,
+			    "__DEVEL__sane_behavior");
+}
+
+static struct file_system_type cgroup2_fs_type = {
+	.name = "cgroup2",
+	.mount = cgroup2_mount,
+	.kill_sb = cgroup_kill_sb,
+};
+
 static struct kobject *cgroup_kobj;
 
 /**
@@ -4726,6 +4745,12 @@ int __init cgroup_init(void)
 	}
 
 	err = register_filesystem(&cgroup_fs_type);
+	if (err < 0) {
+		kobject_put(cgroup_kobj);
+		goto out;
+	}
+
+	err = register_filesystem(&cgroup2_fs_type);
 	if (err < 0) {
 		kobject_put(cgroup_kobj);
 		goto out;
